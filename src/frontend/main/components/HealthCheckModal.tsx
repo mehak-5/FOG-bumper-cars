@@ -1,221 +1,203 @@
 /**
- * HealthCheckModal
- * ----------------
- * Sequential health check panel shown at startup and accessible from the
- * Admin / Header bar. Three checks run in order; a failing check blocks the next.
- *
- *  1. Internet       — 9 attempts, 1.5 s apart
- *  2. Moments Server — 3 attempts, 2 s apart  (only if internet passed)
- *  3. Cameras        — all configured cameras must be ready (only if server passed)
+ * HealthCheckModal / MomentsStatusModal
+ * -------------------------------------
+ * Stylized in exact accordance with the MomentsStatusModal reference:
+ * - Clean modal container styled with dark aesthetics & crisp typography
+ * - Grid row layout: [leading icon] [label + sub-label] [trailing status icon]
+ * - Color palette:
+ *     pending:  #6b6b6b (dimmed)
+ *     checking: #ffffff
+ *     success:  #25AE88 (emerald green)
+ *     warning:  #F5A623 (amber/orange)
+ *     error:    #D75A4A (coral red)
+ * - Sub-label alert styling with #f0ea00 warning/contact highlights
+ * - "Don't Show Again in this session" checkbox + Retry / Ok action buttons
+ * - Sequential checking: Internet -> Moments Server -> Cameras
  */
 import {
-  Alert,
   Box,
   Button,
+  Checkbox,
   CircularProgress,
   Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Divider,
-  LinearProgress,
-  Stack,
-  Tooltip,
   Typography,
 } from '@mui/material';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import type { CameraReadiness, HealthCheckResult, HealthStatus } from '../../../backend/shared/types';
+import type { CameraReadiness, HealthCheckResult } from '../../../backend/shared/types';
 
 // -------------------------------------------------------------------------
-// Types
+// Types & Palette
 // -------------------------------------------------------------------------
 
-interface CheckState {
-  status: HealthStatus;
-  attempt: number;
-  maxAttempts: number;
-  message: string;
-  alertText: string | null;
+export type CheckState = 'pending' | 'checking' | 'success' | 'warning' | 'error';
+
+const COLORS: Record<CheckState, string> = {
+  pending: '#6b6b6b',
+  checking: '#ffffff',
+  success: '#25AE88',
+  warning: '#F5A623',
+  error: '#D75A4A',
+};
+
+const ICON_COLORS: Record<CheckState, string> = {
+  pending: '#555555',
+  checking: '#ffffff',
+  success: '#25AE88',
+  warning: '#F5A623',
+  error: '#D75A4A',
+};
+
+const CONTACT_SUPPORT = 'Please contact FOG support';
+
+// -------------------------------------------------------------------------
+// Vector Icons (clean inline SVG, zero external package dependencies)
+// -------------------------------------------------------------------------
+
+function NetworkIcon({ color }: { color: string }) {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill={color}>
+      <path d="M15.9 5c-.17 0-.32.09-.41.23l-.07.15-5.18 10.37-2.6-5.19A.498.498 0 0 0 7.2 10.2H1v1.6h5.68l3.12 6.24c.09.18.27.29.47.29.18 0 .34-.09.43-.24l.05-.1 5.37-10.74 1.88 3.75c.08.17.26.28.45.28h4.55V10.2h-4.08l-2.5-5c-.09-.12-.23-.2-.39-.2z"/>
+    </svg>
+  );
 }
 
-const INITIAL: CheckState = {
-  status: 'pending',
-  attempt: 0,
-  maxAttempts: 1,
-  message: '',
-  alertText: null,
+function ServerIcon({ color }: { color: string }) {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill={color}>
+      <path d="M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm-4 7h20v-4H2v4zm2-3h2v2H4v-2z"/>
+    </svg>
+  );
+}
+
+function VideocamIcon({ color }: { color: string }) {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill={color}>
+      <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
+    </svg>
+  );
+}
+
+function SuccessSvg() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="#25AE88">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+    </svg>
+  );
+}
+
+function ErrorSvg() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="#D75A4A">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+    </svg>
+  );
+}
+
+function WarningSvg() {
+  return (
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="#F5A623">
+      <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
+    </svg>
+  );
+}
+
+// -------------------------------------------------------------------------
+// CheckRow component
+// -------------------------------------------------------------------------
+const CheckRow = ({
+  icon,
+  state,
+  label,
+  sub,
+}: {
+  icon: React.ReactNode;
+  state: CheckState;
+  label: string;
+  sub?: string;
+}) => {
+  return (
+    <Box
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: '36px 1fr 28px',
+        alignItems: 'center',
+        columnGap: '1rem',
+        padding: '0.65rem 1rem',
+        minHeight: '54px',
+        boxSizing: 'border-box',
+        borderRadius: '6px',
+        backgroundColor: state === 'error' ? 'rgba(215, 90, 74, 0.08)' : 'transparent',
+        transition: 'background-color 0.2s ease',
+      }}
+    >
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        {icon}
+      </Box>
+
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.2rem',
+          textAlign: 'left',
+        }}
+      >
+        <Typography
+          sx={{
+            color: COLORS[state],
+            fontSize: '1.02rem',
+            fontWeight: 600,
+            letterSpacing: '0.6px',
+            lineHeight: 1.25,
+          }}
+        >
+          {label}
+        </Typography>
+
+        {sub && (
+          <Typography
+            sx={{
+              color: '#f0ea00',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              letterSpacing: '0.4px',
+              lineHeight: 1.2,
+            }}
+          >
+            {sub}
+          </Typography>
+        )}
+      </Box>
+
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        {state === 'checking' ? (
+          <CircularProgress size={20} thickness={4} sx={{ color: '#ffffff' }} />
+        ) : state === 'success' ? (
+          <SuccessSvg />
+        ) : state === 'warning' ? (
+          <WarningSvg />
+        ) : state === 'error' ? (
+          <ErrorSvg />
+        ) : null}
+      </Box>
+    </Box>
+  );
 };
 
 // -------------------------------------------------------------------------
-// Helper Icons (Unicode, zero extra dependency)
-// -------------------------------------------------------------------------
-function StatusIcon({ status }: { status: HealthStatus }) {
-  switch (status) {
-    case 'pass':
-      return (
-        <Typography component="span" sx={{ color: 'success.main', fontSize: 20, fontWeight: 'bold' }}>
-          ✓
-        </Typography>
-      );
-    case 'fail':
-      return (
-        <Typography component="span" sx={{ color: 'error.main', fontSize: 20, fontWeight: 'bold' }}>
-          ✕
-        </Typography>
-      );
-    case 'checking':
-      return <CircularProgress size={18} thickness={5} />;
-    case 'skipped':
-      return (
-        <Typography component="span" sx={{ color: 'text.disabled', fontSize: 18 }}>
-          ⏸
-        </Typography>
-      );
-    default:
-      return (
-        <Typography component="span" sx={{ color: 'text.disabled', fontSize: 18 }}>
-          ○
-        </Typography>
-      );
-  }
-}
-
-// -------------------------------------------------------------------------
-// Sub-component: one check row
-// -------------------------------------------------------------------------
-function CheckRow({
-  label,
-  state,
-  description,
-}: {
-  label: string;
-  state: CheckState;
-  description: string;
-}) {
-  const { status, attempt, maxAttempts, message, alertText } = state;
-  const progress = status === 'checking' ? (attempt / maxAttempts) * 100 : 0;
-
-  return (
-    <Box sx={{ mb: 1.5 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-        <Box sx={{ width: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <StatusIcon status={status} />
-        </Box>
-        <Box sx={{ flex: 1 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-              {label}
-            </Typography>
-            {status === 'checking' && (
-              <Typography variant="caption" color="text.secondary">
-                Attempt {attempt}/{maxAttempts}
-              </Typography>
-            )}
-            {(status === 'pass' || status === 'fail') && (
-              <Typography
-                variant="caption"
-                sx={{ color: status === 'pass' ? 'success.main' : 'error.main', fontWeight: 600 }}
-              >
-                {message}
-              </Typography>
-            )}
-          </Box>
-          <Typography variant="caption" color="text.secondary">
-            {description}
-          </Typography>
-          {status === 'checking' && (
-            <LinearProgress
-              variant="determinate"
-              value={progress}
-              sx={{ mt: 0.5, height: 4, borderRadius: 2 }}
-            />
-          )}
-        </Box>
-      </Box>
-      {alertText && (
-        <Alert severity="error" sx={{ mt: 1, py: 0.5 }}>
-          {alertText}
-        </Alert>
-      )}
-    </Box>
-  );
-}
-
-// -------------------------------------------------------------------------
-// Camera check row (uses live readiness data)
-// -------------------------------------------------------------------------
-function CameraCheckRow({
-  state,
-  cameraNames,
-  readiness,
-}: {
-  state: CheckState;
-  cameraNames: { id: string; name: string }[];
-  readiness: Record<string, CameraReadiness>;
-}) {
-  const readyCount = cameraNames.filter((c) => readiness[c.id]?.ready).length;
-  const total = cameraNames.length;
-
-  return (
-    <Box sx={{ mb: 1.5 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-        <Box sx={{ width: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <StatusIcon status={state.status} />
-        </Box>
-        <Box sx={{ flex: 1 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-              Camera Check
-            </Typography>
-            {state.status !== 'pending' && state.status !== 'skipped' && (
-              <Typography
-                variant="caption"
-                sx={{
-                  color: state.status === 'pass' ? 'success.main' : state.status === 'fail' ? 'error.main' : 'text.secondary',
-                  fontWeight: 600,
-                }}
-              >
-                {readyCount}/{total} ready
-              </Typography>
-            )}
-          </Box>
-          <Typography variant="caption" color="text.secondary">
-            All {total} configured cameras must be active
-          </Typography>
-          {state.status === 'checking' && cameraNames.length > 0 && (
-            <Box sx={{ mt: 0.75, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-              {cameraNames.map((cam) => {
-                const r = readiness[cam.id];
-                const ready = r?.ready ?? false;
-                return (
-                  <Box key={cam.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography component="span" sx={{ fontSize: 13, color: ready ? 'success.main' : 'warning.main' }}>
-                      {ready ? '✓' : '⟳'}
-                    </Typography>
-                    <Typography variant="caption">
-                      {cam.name}{' '}
-                      <Typography component="span" variant="caption" color="text.secondary">
-                        — {r?.reason ?? 'waiting…'}
-                      </Typography>
-                    </Typography>
-                  </Box>
-                );
-              })}
-            </Box>
-          )}
-        </Box>
-      </Box>
-      {state.alertText && (
-        <Alert severity="error" sx={{ mt: 1, py: 0.5 }}>
-          {state.alertText}
-        </Alert>
-      )}
-    </Box>
-  );
-}
-
-// -------------------------------------------------------------------------
-// Main modal
+// Main MomentsStatusModal (replacing HealthCheckModal contents)
 // -------------------------------------------------------------------------
 export function HealthCheckModal({
   open,
@@ -226,215 +208,385 @@ export function HealthCheckModal({
   onClose: () => void;
   readiness: Record<string, CameraReadiness>;
 }) {
-  const [internet, setInternet] = useState<CheckState>({ ...INITIAL, maxAttempts: 9 });
-  const [server, setServer] = useState<CheckState>({ ...INITIAL, maxAttempts: 3 });
-  const [cameras, setCameras] = useState<CheckState>({ ...INITIAL });
-  const [cameraNames, setCameraNames] = useState<{ id: string; name: string }[]>([]);
-  const [running, setRunning] = useState(false);
-  const [allPassed, setAllPassed] = useState(false);
+  const [isOpen, setIsOpen] = useState(open);
+  const [dontShow, setDontShow] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+
+  // States for the 3 sequential checks
+  const [internet, setInternet] = useState<CheckState>('pending');
+  const [server, setServer] = useState<CheckState>('pending');
+  const [cameras, setCameras] = useState<CheckState>('pending');
+
+  const [internetAttempt, setInternetAttempt] = useState(1);
+  const [serverAttempt, setServerAttempt] = useState(1);
+  const [cameraCount, setCameraCount] = useState(0);
+  const [camerasExpected, setCamerasExpected] = useState(2);
+
   const abortRef = useRef(false);
 
-  // ---- helpers ------------------------------------------------------------
-  const reset = useCallback(() => {
-    abortRef.current = false;
-    setInternet({ ...INITIAL, maxAttempts: 9 });
-    setServer({ ...INITIAL, maxAttempts: 3 });
-    setCameras({ ...INITIAL });
-    setAllPassed(false);
-  }, []);
+  useEffect(() => {
+    setIsOpen(open);
+  }, [open]);
 
-  // ---- run checks ---------------------------------------------------------
+  // Sequential execution: Internet -> Server -> Cameras
   const runChecks = useCallback(async () => {
-    if (running) return;
+    if (retrying) return;
     abortRef.current = false;
-    setRunning(true);
-    setAllPassed(false);
+    setRetrying(true);
 
-    // ── 1. Internet ──────────────────────────────────────────────────────
-    setInternet((s) => ({ ...s, status: 'checking', attempt: 1, alertText: null }));
+    // Reset rows to pending
+    setInternet('checking');
+    setServer('pending');
+    setCameras('pending');
+    setInternetAttempt(1);
 
-    let iResult: HealthCheckResult;
-    try {
-      iResult = await window.bumper.checkInternet(9);
-    } catch {
-      iResult = { ok: false, message: 'Check failed unexpectedly', attempts: 9 };
+    // ── 1. INTERNET CHECK (up to 9 attempts) ─────────────────────────
+    let netResult: HealthCheckResult = { ok: false, message: '', attempts: 0 };
+    for (let attempt = 1; attempt <= 9; attempt++) {
+      if (abortRef.current) {
+        setRetrying(false);
+        return;
+      }
+      setInternetAttempt(attempt);
+      try {
+        netResult = await window.bumper.checkInternet(1);
+        if (netResult.ok) break;
+      } catch {
+        netResult = { ok: false, message: 'Failed', attempts: attempt };
+      }
+      if (attempt < 9) {
+        await new Promise((r) => setTimeout(r, 800));
+      }
     }
 
     if (abortRef.current) {
-      setRunning(false);
+      setRetrying(false);
       return;
     }
 
-    setInternet({
-      status: iResult.ok ? 'pass' : 'fail',
-      attempt: iResult.attempts,
-      maxAttempts: 9,
-      message: iResult.ok ? 'Connected' : `Failed after ${iResult.attempts} attempts`,
-      alertText: iResult.ok ? null : 'Please connect to the internet',
-    });
-
-    if (!iResult.ok) {
-      setServer((s) => ({ ...s, status: 'skipped' }));
-      setCameras((s) => ({ ...s, status: 'skipped' }));
-      setRunning(false);
+    if (!netResult.ok) {
+      setInternet('error');
+      setServer('pending');
+      setCameras('pending');
+      setRetrying(false);
       return;
     }
+    setInternet('success');
 
-    // ── 2. Moments Server ────────────────────────────────────────────────
-    setServer((s) => ({ ...s, status: 'checking', attempt: 1, alertText: null }));
+    // ── 2. MOMENTS SERVER CHECK (up to 3 attempts) ───────────────────
+    setServer('checking');
+    setServerAttempt(1);
 
-    let sResult: HealthCheckResult;
-    try {
-      sResult = await window.bumper.checkServer(3);
-    } catch {
-      sResult = { ok: false, message: 'Check failed unexpectedly', attempts: 3 };
+    let srvResult: HealthCheckResult = { ok: false, message: '', attempts: 0 };
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      if (abortRef.current) {
+        setRetrying(false);
+        return;
+      }
+      setServerAttempt(attempt);
+      try {
+        srvResult = await window.bumper.checkServer(1);
+        if (srvResult.ok) break;
+      } catch {
+        srvResult = { ok: false, message: 'Failed', attempts: attempt };
+      }
+      if (attempt < 3) {
+        await new Promise((r) => setTimeout(r, 1200));
+      }
     }
 
     if (abortRef.current) {
-      setRunning(false);
+      setRetrying(false);
       return;
     }
 
-    setServer({
-      status: sResult.ok ? 'pass' : 'fail',
-      attempt: sResult.attempts,
-      maxAttempts: 3,
-      message: sResult.ok ? 'Server is active' : `Failed after ${sResult.attempts} attempts`,
-      alertText: sResult.ok ? null : 'Contact FOG Support',
-    });
-
-    if (!sResult.ok) {
-      setCameras((s) => ({ ...s, status: 'skipped' }));
-      setRunning(false);
+    if (!srvResult.ok) {
+      setServer('error');
+      setCameras('pending');
+      setRetrying(false);
       return;
     }
+    setServer('success');
 
-    // ── 3. Cameras ───────────────────────────────────────────────────────
-    let camCfg: { total: number; cameras: { id: string; name: string }[] };
+    // ── 3. CAMERAS CHECK (active states) ─────────────────────────────
+    setCameras('checking');
+
+    let cfg = { total: 2, cameras: [] as { id: string; name: string }[] };
     try {
-      camCfg = await window.bumper.getCameraConfig();
+      cfg = await window.bumper.getCameraConfig();
     } catch {
-      camCfg = { total: 0, cameras: [] };
+      cfg = { total: 2, cameras: [] };
     }
+    const expected = cfg.total > 0 ? cfg.total : 2;
+    setCamerasExpected(expected);
 
-    setCameraNames(camCfg.cameras);
-    setCameras((s) => ({ ...s, status: 'checking', maxAttempts: camCfg.total }));
-
-    // Poll readiness for up to 15 s — cameras appear in the shared `readiness` prop
-    const deadline = Date.now() + 15_000;
-    let cameraOk = false;
+    // Poll live camera readiness
+    const deadline = Date.now() + 8000;
+    let ready = 0;
     while (Date.now() < deadline && !abortRef.current) {
-      const readyCount = camCfg.cameras.filter((c) => readiness[c.id]?.ready).length;
-      if (readyCount >= camCfg.total && camCfg.total > 0) {
-        cameraOk = true;
+      ready = cfg.cameras.filter((c) => readiness[c.id]?.ready).length;
+      setCameraCount(ready);
+      if (ready >= expected) {
         break;
       }
       await new Promise((r) => setTimeout(r, 500));
     }
 
     if (abortRef.current) {
-      setRunning(false);
+      setRetrying(false);
       return;
     }
 
-    const readyCount = camCfg.cameras.filter((c) => readiness[c.id]?.ready).length;
-    const total = camCfg.total;
-    setCameras({
-      status: cameraOk ? 'pass' : 'fail',
-      attempt: readyCount,
-      maxAttempts: total,
-      message: cameraOk ? `${total}/${total} cameras ready` : `Only ${readyCount}/${total} cameras ready`,
-      alertText: cameraOk ? null : `Insufficient cameras — only ${readyCount}/${total} connected`,
-    });
+    if (ready === expected && expected > 0) {
+      setCameras('success');
+    } else if (ready > 0) {
+      setCameras('warning');
+    } else {
+      setCameras('error');
+    }
 
-    if (cameraOk) setAllPassed(true);
-    setRunning(false);
-  }, [running, readiness]);
+    setRetrying(false);
+  }, [retrying, readiness]);
 
-  // Run automatically when modal first opens
+  // Initial trigger when modal opens
   const hasRun = useRef(false);
   useEffect(() => {
-    if (open && !hasRun.current) {
+    if (isOpen && !hasRun.current) {
       hasRun.current = true;
       void runChecks();
     }
-    if (!open) {
+    if (!isOpen) {
       hasRun.current = false;
       abortRef.current = true;
     }
-  }, [open, runChecks]);
-
-  const handleRetry = () => {
-    reset();
-    setTimeout(() => void runChecks(), 100);
-  };
+  }, [isOpen, runChecks]);
 
   const handleClose = () => {
     abortRef.current = true;
+    setIsOpen(false);
     onClose();
   };
 
-  return (
-    <Dialog open={open} maxWidth="sm" fullWidth>
-      <DialogTitle sx={{ pb: 1 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          {running && <CircularProgress size={18} />}
-          <span>System Health Check</span>
-        </Box>
-      </DialogTitle>
+  const handleRetry = () => {
+    void runChecks();
+  };
 
-      <DialogContent dividers>
-        {allPassed && (
-          <Alert severity="success" sx={{ mb: 2 }}>
-            All systems operational — Bumper Car Moments is ready!
-          </Alert>
+  if (!isOpen || (dontShow && !open)) {
+    return null;
+  }
+
+  // Derive labels and sub-labels matching reference
+  const internetLabel =
+    internet === 'success'
+      ? 'Internet Connected'
+      : internet === 'error'
+      ? 'No Internet Connection'
+      : internet === 'checking'
+      ? `Checking Internet (attempt ${internetAttempt}/9)...`
+      : 'Internet Check';
+
+  const internetSub =
+    internet === 'error' ? 'Please connect to the internet' : undefined;
+
+  const serverLabel =
+    server === 'success'
+      ? 'Moments Server Running'
+      : server === 'error'
+      ? 'Moments Server Failed to Start'
+      : server === 'checking'
+      ? `Starting Server (attempt ${serverAttempt}/3)...`
+      : 'Moments Server';
+
+  const serverSub = server === 'error' ? CONTACT_SUPPORT : undefined;
+
+  const camerasLabel =
+    cameras === 'success'
+      ? 'All Cameras Connected'
+      : cameras === 'warning'
+      ? `${cameraCount}/${camerasExpected} Cameras Connected`
+      : cameras === 'error'
+      ? 'No Cameras Connected'
+      : cameras === 'checking'
+      ? 'Checking Cameras...'
+      : 'Cameras';
+
+  const camerasSub =
+    cameras === 'warning'
+      ? 'Moments running on fewer cameras, connect the rest'
+      : cameras === 'error'
+      ? 'Insufficient cameras'
+      : undefined;
+
+  const rows = [internet, server, cameras];
+  const allPassed = rows.every((s) => s === 'success');
+  const finished =
+    !retrying &&
+    (rows.includes('error') || rows.every((s) => s === 'success' || s === 'warning'));
+
+  return (
+    <Dialog
+      open={isOpen}
+      onClose={handleClose}
+      slotProps={{
+        paper: {
+          sx: {
+            width: 'clamp(520px, 40vw, 680px)',
+            backgroundColor: '#1b1c1e',
+            color: '#ffffff',
+            borderRadius: '12px',
+            boxShadow: '0 12px 36px rgba(0,0,0,0.65)',
+            border: '1px solid #2e3034',
+            p: 0,
+            overflow: 'hidden',
+          },
+        },
+      }}
+    >
+      {/* Title Header */}
+      <Box
+        sx={{
+          backgroundColor: '#232529',
+          px: 3,
+          py: 2,
+          borderBottom: '1px solid #2e3034',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}
+      >
+        <Typography
+          variant="h6"
+          sx={{
+            fontWeight: 700,
+            fontSize: '1.15rem',
+            letterSpacing: '0.5px',
+            color: '#f0f0f0',
+          }}
+        >
+          Moments Server Health
+        </Typography>
+        {retrying && (
+          <CircularProgress size={18} sx={{ color: '#25AE88' }} />
+        )}
+      </Box>
+
+      {/* Body Content */}
+      <Box
+        sx={{
+          px: 3,
+          pt: 3,
+          pb: 2.5,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+        }}
+      >
+        <Box
+          sx={{
+            width: '100%',
+            maxWidth: '520px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.6rem',
+          }}
+        >
+          {/* ROW 1: INTERNET */}
+          <CheckRow
+            icon={<NetworkIcon color={ICON_COLORS[internet]} />}
+            state={internet}
+            label={internetLabel}
+            sub={internetSub}
+          />
+
+          {/* ROW 2: MOMENTS SERVER */}
+          <CheckRow
+            icon={<ServerIcon color={ICON_COLORS[server]} />}
+            state={server}
+            label={serverLabel}
+            sub={serverSub}
+          />
+
+          {/* ROW 3: CAMERAS */}
+          <CheckRow
+            icon={<VideocamIcon color={ICON_COLORS[cameras]} />}
+            state={cameras}
+            label={camerasLabel}
+            sub={camerasSub}
+          />
+        </Box>
+
+        {/* Action Buttons: Retry if failed, Ok when finished */}
+        {finished && (
+          <Box
+            sx={{
+              display: 'flex',
+              gap: '1rem',
+              mt: 2.5,
+              alignSelf: 'center',
+            }}
+          >
+            {!allPassed && (
+              <Button
+                onClick={handleRetry}
+                variant="outlined"
+                disabled={retrying}
+                sx={{
+                  color: '#f5a623',
+                  borderColor: '#f5a623',
+                  fontWeight: 600,
+                  px: 3,
+                  '&:hover': {
+                    borderColor: '#ffbe4d',
+                    backgroundColor: 'rgba(245, 166, 35, 0.08)',
+                  },
+                }}
+              >
+                Retry
+              </Button>
+            )}
+
+            <Button
+              onClick={handleClose}
+              variant="contained"
+              sx={{
+                backgroundColor: allPassed ? '#25AE88' : '#393c42',
+                color: '#ffffff',
+                fontWeight: 600,
+                px: 3.5,
+                '&:hover': {
+                  backgroundColor: allPassed ? '#209675' : '#454950',
+                },
+              }}
+            >
+              Ok
+            </Button>
+          </Box>
         )}
 
-        <Stack spacing={0} divider={<Divider flexItem sx={{ my: 0.5 }} />}>
-          {/* Internet */}
-          <CheckRow
-            label="Internet Connectivity"
-            state={internet}
-            description={`Checks network reachability — up to ${internet.maxAttempts} attempts`}
-          />
-
-          {/* Server */}
-          <CheckRow
-            label="Bumper Car Moments Server"
-            state={server}
-            description={`Verifies the moments server is active — up to ${server.maxAttempts} attempts`}
-          />
-
-          {/* Cameras */}
-          <CameraCheckRow
-            state={cameras}
-            cameraNames={cameraNames}
-            readiness={readiness}
-          />
-        </Stack>
-      </DialogContent>
-
-      <DialogActions sx={{ px: 3, py: 1.5, gap: 1 }}>
-        <Tooltip title={running ? 'Checks in progress…' : ''}>
-          <span>
-            <Button
-              variant="outlined"
-              onClick={handleRetry}
-              disabled={running}
-            >
-              Re-run Checks
-            </Button>
-          </span>
-        </Tooltip>
-        <Button
-          variant="contained"
-          onClick={handleClose}
-          color={allPassed ? 'success' : 'primary'}
-          disabled={running}
+        {/* Don't show again checkbox */}
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            mt: 2,
+            opacity: 0.85,
+          }}
         >
-          {allPassed ? 'Continue' : 'Dismiss'}
-        </Button>
-      </DialogActions>
+          <Checkbox
+            size="small"
+            checked={dontShow}
+            onChange={(e) => setDontShow(e.target.checked)}
+            sx={{
+              color: '#6b6b6b',
+              '&.Mui-checked': { color: '#25AE88' },
+            }}
+          />
+          <Typography sx={{ fontSize: '0.85rem', color: '#c0c0c0' }}>
+            Don't Show Again in this session
+          </Typography>
+        </Box>
+      </Box>
     </Dialog>
   );
 }
