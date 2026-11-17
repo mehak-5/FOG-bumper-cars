@@ -30,7 +30,7 @@ export interface RecordingConfig {
 }
 
 export interface AppConfig {
-  venue: { name?: string };
+  venue: { name?: string; moments_server_url?: string };
   recording: RecordingConfig;
   trigger: { debounce_seconds: number };
   sessionsDir: string;

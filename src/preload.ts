@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC } from './backend/constants';
-import type { AppState, CameraReadiness, Notice } from './backend/shared/types';
+import type { AppState, CameraReadiness, HealthCheckResult, Notice } from './backend/shared/types';
 
 type CameraConfigRaw = { id: string; name: string; source: string | number; enabled: boolean };
 type SessionMeta = {
@@ -19,7 +19,7 @@ const subscribe = <T>(channel: string, cb: (data: T) => void) => {
 };
 
 contextBridge.exposeInMainWorld('bumper', {
-  // existing
+  // state
   getState: (): Promise<AppState> => ipcRenderer.invoke(IPC.GET_STATE),
   pressKey: (key: string): Promise<void> => ipcRenderer.invoke(IPC.TRIGGER_KEY, key),
   onState: (cb: (s: AppState) => void) => subscribe(IPC.STATE, cb),
@@ -47,4 +47,12 @@ contextBridge.exposeInMainWorld('bumper', {
   listHistory: (): Promise<SessionMeta[]> => ipcRenderer.invoke(IPC.HISTORY_LIST),
   deleteSession: (id: string): Promise<void> => ipcRenderer.invoke(IPC.HISTORY_DELETE, id),
   openSessionFolder: (id: string): Promise<void> => ipcRenderer.invoke(IPC.HISTORY_OPEN_FOLDER, id),
+
+  // health checks
+  checkInternet: (maxAttempts?: number): Promise<HealthCheckResult> =>
+    ipcRenderer.invoke(IPC.HEALTH_CHECK_INTERNET, maxAttempts ?? 9),
+  checkServer: (maxAttempts?: number): Promise<HealthCheckResult> =>
+    ipcRenderer.invoke(IPC.HEALTH_CHECK_SERVER, maxAttempts ?? 3),
+  getCameraConfig: (): Promise<{ total: number; cameras: { id: string; name: string }[] }> =>
+    ipcRenderer.invoke(IPC.HEALTH_CHECK_CAMERAS),
 });

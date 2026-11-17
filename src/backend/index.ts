@@ -7,6 +7,7 @@ import YAML from 'yaml';
 import { IPC } from './constants';
 import { RecorderManager } from './managers/recorderManager';
 import { loadConfig } from './services/config';
+import { checkInternet, checkMomentsServer } from './services/healthCheck';
 import { getLogger, initLogging } from './services/logger';
 import { PreviewManager } from './services/preview';
 import { checkDisk, recoverInterruptedSessions } from './services/startup';
@@ -149,6 +150,21 @@ export function startBackend(o: {
     doc.set('recording', recording);
     if (trigger !== undefined) doc.set('trigger', trigger);
     await writeFile(configPath, doc.toString());
+  });
+
+  // ---- Health check IPC handlers ----
+  ipcMain.handle(IPC.HEALTH_CHECK_INTERNET, async (_event, maxAttempts: unknown) => {
+    return checkInternet(typeof maxAttempts === 'number' ? maxAttempts : 9);
+  });
+
+  ipcMain.handle(IPC.HEALTH_CHECK_SERVER, async (_event, maxAttempts: unknown) => {
+    const serverUrl = cfg.venue.moments_server_url ?? 'http://localhost:8080/health';
+    return checkMomentsServer(serverUrl, typeof maxAttempts === 'number' ? maxAttempts : 3);
+  });
+
+  ipcMain.handle(IPC.HEALTH_CHECK_CAMERAS, () => {
+    const total = cfg.cameras.length;
+    return { total, cameras: cfg.cameras.map((c) => ({ id: c.id, name: c.name })) };
   });
 
   if (fatal) setTimeout(() => void bus.publish(EVENTS.NOTICE, { level: 'error', text: fatal }), 1500);

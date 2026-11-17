@@ -2,6 +2,7 @@ import {
   Alert,
   AppBar,
   Box,
+  Button,
   Chip,
   Snackbar,
   Stack,
@@ -10,11 +11,12 @@ import {
   Toolbar,
   Typography,
 } from '@mui/material';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { CameraManager } from './components/CameraManager';
 import { ControlBar } from './components/ControlBar';
 import { EventLogPanel } from './components/EventLogPanel';
+import { HealthCheckModal } from './components/HealthCheckModal';
 import { PreviewGrid } from './components/PreviewGrid';
 import { ReadinessPanel } from './components/ReadinessPanel';
 import { RideHistory } from './components/RideHistory';
@@ -42,6 +44,7 @@ export default function App() {
   const readiness = useSelector((s: RootState) => s.readiness);
   const diskFreeGb = useSelector((s: RootState) => s.diskFreeGb);
   const [tab, setTab] = useState(0);
+  const [healthOpen, setHealthOpen] = useState(true); // auto-open health check modal on startup
 
   useEffect(() => {
     void window.bumper.getState().then((s) => dispatch(setState(s)));
@@ -72,6 +75,13 @@ export default function App() {
 
   return (
     <>
+      {/* ── Health Check Modal ─────────────────────────────────────── */}
+      <HealthCheckModal
+        open={healthOpen}
+        onClose={() => setHealthOpen(false)}
+        readiness={readiness}
+      />
+
       <AppBar position="static" color="default" elevation={1}>
         <Toolbar sx={{ gap: 2 }}>
           <Typography variant="h6" sx={{ flexGrow: 1 }}>
@@ -85,6 +95,16 @@ export default function App() {
           {diskLow && (
             <Chip size="small" color="warning" label={`⚠ Disk: ${diskFreeGb?.toFixed(1)} GB`} />
           )}
+
+          {/* Admin panel health check button */}
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => setHealthOpen(true)}
+            sx={{ ml: 1, whiteSpace: 'nowrap' }}
+          >
+            🩺 Health Check
+          </Button>
         </Toolbar>
       </AppBar>
 
