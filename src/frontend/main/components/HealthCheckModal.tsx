@@ -53,10 +53,10 @@ const CONTACT_SUPPORT = 'Please contact FOG support';
 // Vector Icons (clean inline SVG, zero external package dependencies)
 // -------------------------------------------------------------------------
 
-function NetworkIcon({ color }: { color: string }) {
+function WifiIcon({ color }: { color: string }) {
   return (
     <svg width="28" height="28" viewBox="0 0 24 24" fill={color}>
-      <path d="M15.9 5c-.17 0-.32.09-.41.23l-.07.15-5.18 10.37-2.6-5.19A.498.498 0 0 0 7.2 10.2H1v1.6h5.68l3.12 6.24c.09.18.27.29.47.29.18 0 .34-.09.43-.24l.05-.1 5.37-10.74 1.88 3.75c.08.17.26.28.45.28h4.55V10.2h-4.08l-2.5-5c-.09-.12-.23-.2-.39-.2z"/>
+      <path d="M12 4C7.31 4 3.07 5.9 0 8.98L12 21 24 8.98A16.88 16.88 0 0 0 12 4zM2.92 9.07C5.51 7.08 8.67 6 12 6s6.49 1.08 9.08 3.07L12 18.17l-9.08-9.1z"/>
     </svg>
   );
 }
@@ -449,9 +449,10 @@ export function HealthCheckModal({
           px: 3,
           py: 2,
           borderBottom: '1px solid #2e3034',
+          position: 'relative',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
+          justifyContent: 'center',
         }}
       >
         <Typography
@@ -461,12 +462,20 @@ export function HealthCheckModal({
             fontSize: '1.15rem',
             letterSpacing: '0.5px',
             color: '#f0f0f0',
+            textAlign: 'center',
           }}
         >
-          Moments Server Health
+          Moment Status Modal
         </Typography>
         {retrying && (
-          <CircularProgress size={18} sx={{ color: '#25AE88' }} />
+          <CircularProgress
+            size={18}
+            sx={{
+              color: '#25AE88',
+              position: 'absolute',
+              right: 24,
+            }}
+          />
         )}
       </Box>
 
@@ -492,7 +501,7 @@ export function HealthCheckModal({
         >
           {/* ROW 1: INTERNET */}
           <CheckRow
-            icon={<NetworkIcon color={ICON_COLORS[internet]} />}
+            icon={<WifiIcon color={ICON_COLORS[internet]} />}
             state={internet}
             label={internetLabel}
             sub={internetSub}
