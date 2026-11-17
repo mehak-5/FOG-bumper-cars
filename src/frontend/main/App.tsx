@@ -10,8 +10,7 @@ import {
   Toolbar,
   Typography,
 } from '@mui/material';
-import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { CameraCard } from './components/CameraCard';
 import { ControlBar } from './components/ControlBar';
@@ -86,11 +85,10 @@ export default function App() {
           <Button
             size="small"
             variant="outlined"
-            startIcon={<MonitorHeartIcon />}
             onClick={() => setHealthOpen(true)}
             sx={{ ml: 1, whiteSpace: 'nowrap' }}
           >
-            Health Check
+            🩺 Health Check
           </Button>
         </Toolbar>
       </AppBar>

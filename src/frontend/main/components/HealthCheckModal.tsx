@@ -2,16 +2,12 @@
  * HealthCheckModal
  * ----------------
  * Sequential health check panel shown at startup and accessible from the
- * Admin tab.  Three checks run in order; a failing check blocks the next.
+ * Admin / Header bar. Three checks run in order; a failing check blocks the next.
  *
  *  1. Internet       — 9 attempts, 1.5 s apart
  *  2. Moments Server — 3 attempts, 2 s apart  (only if internet passed)
  *  3. Cameras        — all configured cameras must be ready (only if server passed)
  */
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import ErrorIcon from '@mui/icons-material/Error';
-import HourglassTopIcon from '@mui/icons-material/HourglassTop';
-import PendingIcon from '@mui/icons-material/Pending';
 import {
   Alert,
   Box,
@@ -27,7 +23,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { CameraReadiness, HealthCheckResult, HealthStatus } from '../../../backend/shared/types';
 
 // -------------------------------------------------------------------------
@@ -51,6 +47,40 @@ const INITIAL: CheckState = {
 };
 
 // -------------------------------------------------------------------------
+// Helper Icons (Unicode, zero extra dependency)
+// -------------------------------------------------------------------------
+function StatusIcon({ status }: { status: HealthStatus }) {
+  switch (status) {
+    case 'pass':
+      return (
+        <Typography component="span" sx={{ color: 'success.main', fontSize: 20, fontWeight: 'bold' }}>
+          ✓
+        </Typography>
+      );
+    case 'fail':
+      return (
+        <Typography component="span" sx={{ color: 'error.main', fontSize: 20, fontWeight: 'bold' }}>
+          ✕
+        </Typography>
+      );
+    case 'checking':
+      return <CircularProgress size={18} thickness={5} />;
+    case 'skipped':
+      return (
+        <Typography component="span" sx={{ color: 'text.disabled', fontSize: 18 }}>
+          ⏸
+        </Typography>
+      );
+    default:
+      return (
+        <Typography component="span" sx={{ color: 'text.disabled', fontSize: 18 }}>
+          ○
+        </Typography>
+      );
+  }
+}
+
+// -------------------------------------------------------------------------
 // Sub-component: one check row
 // -------------------------------------------------------------------------
 function CheckRow({
@@ -63,26 +93,17 @@ function CheckRow({
   description: string;
 }) {
   const { status, attempt, maxAttempts, message, alertText } = state;
-
-  const icon = (() => {
-    switch (status) {
-      case 'pass':    return <CheckCircleIcon color="success" />;
-      case 'fail':    return <ErrorIcon color="error" />;
-      case 'checking': return <CircularProgress size={22} thickness={5} />;
-      case 'skipped': return <HourglassTopIcon color="disabled" />;
-      default:        return <PendingIcon color="disabled" />;
-    }
-  })();
-
   const progress = status === 'checking' ? (attempt / maxAttempts) * 100 : 0;
 
   return (
     <Box sx={{ mb: 1.5 }}>
-      <Stack direction="row" alignItems="center" spacing={1.5}>
-        <Box sx={{ width: 24, display: 'flex', alignItems: 'center' }}>{icon}</Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <Box sx={{ width: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <StatusIcon status={status} />
+        </Box>
         <Box sx={{ flex: 1 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Typography variant="subtitle2" fontWeight={600}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
               {label}
             </Typography>
             {status === 'checking' && (
@@ -93,12 +114,12 @@ function CheckRow({
             {(status === 'pass' || status === 'fail') && (
               <Typography
                 variant="caption"
-                color={status === 'pass' ? 'success.main' : 'error.main'}
+                sx={{ color: status === 'pass' ? 'success.main' : 'error.main', fontWeight: 600 }}
               >
                 {message}
               </Typography>
             )}
-          </Stack>
+          </Box>
           <Typography variant="caption" color="text.secondary">
             {description}
           </Typography>
@@ -110,7 +131,7 @@ function CheckRow({
             />
           )}
         </Box>
-      </Stack>
+      </Box>
       {alertText && (
         <Alert severity="error" sx={{ mt: 1, py: 0.5 }}>
           {alertText}
@@ -137,62 +158,53 @@ function CameraCheckRow({
 
   return (
     <Box sx={{ mb: 1.5 }}>
-      <Stack direction="row" alignItems="center" spacing={1.5}>
-        <Box sx={{ width: 24, display: 'flex', alignItems: 'center' }}>
-          {state.status === 'checking' ? (
-            <CircularProgress size={22} thickness={5} />
-          ) : state.status === 'pass' ? (
-            <CheckCircleIcon color="success" />
-          ) : state.status === 'fail' ? (
-            <ErrorIcon color="error" />
-          ) : state.status === 'skipped' ? (
-            <HourglassTopIcon color="disabled" />
-          ) : (
-            <PendingIcon color="disabled" />
-          )}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <Box sx={{ width: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <StatusIcon status={state.status} />
         </Box>
         <Box sx={{ flex: 1 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Typography variant="subtitle2" fontWeight={600}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
               Camera Check
             </Typography>
             {state.status !== 'pending' && state.status !== 'skipped' && (
               <Typography
                 variant="caption"
-                color={state.status === 'pass' ? 'success.main' : state.status === 'fail' ? 'error.main' : 'text.secondary'}
+                sx={{
+                  color: state.status === 'pass' ? 'success.main' : state.status === 'fail' ? 'error.main' : 'text.secondary',
+                  fontWeight: 600,
+                }}
               >
                 {readyCount}/{total} ready
               </Typography>
             )}
-          </Stack>
+          </Box>
           <Typography variant="caption" color="text.secondary">
             All {total} configured cameras must be active
           </Typography>
           {state.status === 'checking' && cameraNames.length > 0 && (
-            <Stack spacing={0.5} sx={{ mt: 0.75 }}>
+            <Box sx={{ mt: 0.75, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
               {cameraNames.map((cam) => {
                 const r = readiness[cam.id];
                 const ready = r?.ready ?? false;
                 return (
-                  <Stack key={cam.id} direction="row" spacing={1} alignItems="center">
-                    {ready ? (
-                      <CheckCircleIcon color="success" sx={{ fontSize: 14 }} />
-                    ) : (
-                      <CircularProgress size={14} />
-                    )}
+                  <Box key={cam.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography component="span" sx={{ fontSize: 13, color: ready ? 'success.main' : 'warning.main' }}>
+                      {ready ? '✓' : '⟳'}
+                    </Typography>
                     <Typography variant="caption">
                       {cam.name}{' '}
                       <Typography component="span" variant="caption" color="text.secondary">
                         — {r?.reason ?? 'waiting…'}
                       </Typography>
                     </Typography>
-                  </Stack>
+                  </Box>
                 );
               })}
-            </Stack>
+            </Box>
           )}
         </Box>
-      </Stack>
+      </Box>
       {state.alertText && (
         <Alert severity="error" sx={{ mt: 1, py: 0.5 }}>
           {state.alertText}
@@ -215,15 +227,14 @@ export function HealthCheckModal({
   readiness: Record<string, CameraReadiness>;
 }) {
   const [internet, setInternet] = useState<CheckState>({ ...INITIAL, maxAttempts: 9 });
-  const [server, setServer]     = useState<CheckState>({ ...INITIAL, maxAttempts: 3 });
-  const [cameras, setCameras]   = useState<CheckState>({ ...INITIAL });
+  const [server, setServer] = useState<CheckState>({ ...INITIAL, maxAttempts: 3 });
+  const [cameras, setCameras] = useState<CheckState>({ ...INITIAL });
   const [cameraNames, setCameraNames] = useState<{ id: string; name: string }[]>([]);
-  const [running, setRunning]   = useState(false);
+  const [running, setRunning] = useState(false);
   const [allPassed, setAllPassed] = useState(false);
   const abortRef = useRef(false);
 
   // ---- helpers ------------------------------------------------------------
-
   const reset = useCallback(() => {
     abortRef.current = false;
     setInternet({ ...INITIAL, maxAttempts: 9 });
@@ -249,7 +260,10 @@ export function HealthCheckModal({
       iResult = { ok: false, message: 'Check failed unexpectedly', attempts: 9 };
     }
 
-    if (abortRef.current) { setRunning(false); return; }
+    if (abortRef.current) {
+      setRunning(false);
+      return;
+    }
 
     setInternet({
       status: iResult.ok ? 'pass' : 'fail',
@@ -276,7 +290,10 @@ export function HealthCheckModal({
       sResult = { ok: false, message: 'Check failed unexpectedly', attempts: 3 };
     }
 
-    if (abortRef.current) { setRunning(false); return; }
+    if (abortRef.current) {
+      setRunning(false);
+      return;
+    }
 
     setServer({
       status: sResult.ok ? 'pass' : 'fail',
@@ -315,7 +332,10 @@ export function HealthCheckModal({
       await new Promise((r) => setTimeout(r, 500));
     }
 
-    if (abortRef.current) { setRunning(false); return; }
+    if (abortRef.current) {
+      setRunning(false);
+      return;
+    }
 
     const readyCount = camCfg.cameras.filter((c) => readiness[c.id]?.ready).length;
     const total = camCfg.total;
@@ -342,7 +362,7 @@ export function HealthCheckModal({
       hasRun.current = false;
       abortRef.current = true;
     }
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, runChecks]);
 
   const handleRetry = () => {
     reset();
@@ -354,16 +374,13 @@ export function HealthCheckModal({
     onClose();
   };
 
-  // -------------------------------------------------------------------------
-  // Render
-  // -------------------------------------------------------------------------
   return (
-    <Dialog open={open} maxWidth="sm" fullWidth disableEscapeKeyDown={running}>
+    <Dialog open={open} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ pb: 1 }}>
-        <Stack direction="row" alignItems="center" spacing={1}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           {running && <CircularProgress size={18} />}
           <span>System Health Check</span>
-        </Stack>
+        </Box>
       </DialogTitle>
 
       <DialogContent dividers>

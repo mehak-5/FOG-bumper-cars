@@ -23,11 +23,11 @@ export interface AppState {
   startedAt: string | null;
   cameras: CameraState[];
   lastSession: { id: string; status: string } | null;
-  readiness: Record<string, CameraReadiness>;
-  trigger: TriggerState | null;
-  rideEndsAt: number | null;
-  diskFreeGb: number | null;
-  notes: string;
+  readiness?: Record<string, CameraReadiness>;
+  trigger?: TriggerState | null;
+  rideEndsAt?: number | null;
+  diskFreeGb?: number | null;
+  notes?: string;
 }
 
 export interface Notice {
