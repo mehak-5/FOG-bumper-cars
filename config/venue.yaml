@@ -1,5 +1,6 @@
 venue:
   name: "Demo Venue"
+  moments_server_url: "http://localhost:8080/health"   # URL to check for Bumper Car Moments server health
 
 recording:
   ffmpeg_path: ffmpeg             # or 'C:\ffmpeg\bin\ffmpeg.exe' (single quotes)

@@ -5,6 +5,7 @@ import { ipcMain } from 'electron';
 import { IPC } from './constants';
 import { RecorderManager } from './managers/recorderManager';
 import { loadConfig } from './services/config';
+import { checkInternet, checkMomentsServer } from './services/healthCheck';
 import { getLogger, initLogging } from './services/logger';
 import { EVENTS, EventBus } from './shared/events';
 import { KeyboardTrigger } from './triggers/keyboardTrigger';
@@ -48,6 +49,22 @@ export function startBackend(o: {
     if (!keepRunning) o.quit();
   });
   if (fatal) setTimeout(() => void bus.publish(EVENTS.NOTICE, { level: 'error', text: fatal }), 1500);
+
+  // ---- Health check IPC handlers ----
+  ipcMain.handle(IPC.HEALTH_CHECK_INTERNET, async (_event, maxAttempts: unknown) => {
+    return checkInternet(typeof maxAttempts === 'number' ? maxAttempts : 9);
+  });
+
+  ipcMain.handle(IPC.HEALTH_CHECK_SERVER, async (_event, maxAttempts: unknown) => {
+    const serverUrl = cfg.venue.moments_server_url ?? 'http://localhost:8080/health';
+    return checkMomentsServer(serverUrl, typeof maxAttempts === 'number' ? maxAttempts : 3);
+  });
+
+  ipcMain.handle(IPC.HEALTH_CHECK_CAMERAS, () => {
+    // Returns the total configured camera count and how many are ready
+    const total = cfg.cameras.length;
+    return { total, cameras: cfg.cameras.map((c) => ({ id: c.id, name: c.name })) };
+  });
 
   return { shutdown: () => recorder.shutdown(), killAll: () => recorder.killAll() };
 }

@@ -30,11 +30,12 @@ export interface RecordingConfig {
 }
 
 export interface AppConfig {
-  venue: { name?: string };
+  venue: { name?: string; moments_server_url?: string };
   recording: RecordingConfig;
   trigger: { debounce_seconds: number };
   sessionsDir: string;
   cameras: CameraConfig[];
+  diskWarnGb: number;
 }
 
 const DEFAULTS: RecordingConfig = {
@@ -97,5 +98,6 @@ export function loadConfig(path: string, appRoot: string, dataRoot: string): App
     trigger: { debounce_seconds: 0.5, ...(raw.trigger ?? {}) },
     sessionsDir: abs(dataRoot, raw.storage?.sessions_dir ?? 'storage/sessions'),
     cameras,
+    diskWarnGb: raw.storage?.disk_warn_gb ?? 5,
   };
 }
