@@ -204,7 +204,7 @@ export class PreviewManager {
       this.openPipe(cam, state);
     }, state.backoff);
     // Exponential backoff capped at 30 s
-    state.backoff = Math.min(state.backoff * 2, 30_000);
+    state.backoff = Math.min(state.backoff * 2, 5_000);
   }
 
   private onData(state: PipeState, chunk: Buffer): void {

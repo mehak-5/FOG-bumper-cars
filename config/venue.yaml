@@ -11,7 +11,7 @@ recording:
   encoder_args: ["-preset", "veryfast", "-crf", "23"]
   ride_duration_seconds: null     # null = ends only on E / trigger; number = auto-end
   max_duration_seconds: 600       # hard safety limit per ride
-  open_timeout_seconds: 10
+  open_timeout_seconds: 5
   disconnect_timeout_seconds: 5
 
 trigger:

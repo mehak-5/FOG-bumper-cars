@@ -33,8 +33,10 @@ export function startBackend(o: {
   const cfg = loadConfig(configPath, o.appRoot, o.dataRoot); // throws a readable error
   log.info(`Venue: ${cfg.venue.name ?? 'unnamed'} | ${cfg.cameras.length} camera(s) | config: ${configPath}`);
 
+  // Try the configured ffmpeg binary first.
   let probe = spawnSync(cfg.recording.ffmpeg_path, ['-version']);
-  if ((probe.error || probe.status !== 0) && cfg.recording.ffmpeg_path === 'ffmpeg') {
+  // If it fails (e.g., not on PATH) fall back to the bundled static binary.
+  if (probe.error || probe.status !== 0) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const staticFfmpeg = require('ffmpeg-static') as string;
@@ -42,7 +44,9 @@ export function startBackend(o: {
         cfg.recording.ffmpeg_path = staticFfmpeg;
         probe = spawnSync(cfg.recording.ffmpeg_path, ['-version']);
       }
-    } catch { /* fallback not available */ }
+    } catch {
+      // If ffmpeg-static is unavailable we keep the original path – fatal will be reported.
+    }
   }
   const fatal =
     probe.error || probe.status !== 0
