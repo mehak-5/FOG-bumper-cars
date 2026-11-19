@@ -30,4 +30,4 @@ extend-exclude = ["node_modules", "graphify-out"]
 select = ["E", "F", "I", "B", "UP", "ASYNC"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["E501", "ASYNC110"]
+"tests/*" = ["E501", "ASYNC110", "ASYNC240"]
