@@ -8,3 +8,10 @@ storage/sessions/*
 !storage/sessions/.gitkeep
 test/videos/*
 !test/videos/.gitkeep
+graphify-out/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+*.egg-info/
