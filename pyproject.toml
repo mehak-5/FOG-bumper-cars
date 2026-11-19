@@ -8,6 +8,7 @@ dependencies = [
     "uvicorn",
     "pydantic>=2",
     "pyyaml",
+    "pynput",
 ]
 
 [project.optional-dependencies]
