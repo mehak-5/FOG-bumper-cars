@@ -216,3 +216,9 @@ def test_same_origin_and_originless_requests_pass(client, ctx):
         == 200
     )
     assert client.delete(f"/api/sessions/{VALID_ID}", headers=ORIGIN).status_code == 200
+
+
+def test_quit_button_is_hidden_until_the_desktop_shell_enables_it(client):
+    html = client.get("/").text
+    assert 'id="btn-quit"' in html and "hidden" in html.split('id="btn-quit"')[1].split(">")[0]
+    assert "/static/js/desktop.js" in html

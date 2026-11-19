@@ -56,6 +56,12 @@ def build_router(ctx: AppContext) -> APIRouter:
             "error": ctx.fatal,
         }
 
+    @router.post("/app/quit")
+    async def quit_app() -> dict[str, bool]:
+        """Used by the desktop shell: stops any ride cleanly, then exits the backend."""
+        await ctx.bus.publish(Events.APP_QUIT, {"source": "desktop"})
+        return {"quitting": True}
+
     @router.get("/devices/cameras")
     async def cameras_available() -> dict[str, Any]:
         if sys.platform != "win32":

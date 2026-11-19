@@ -98,6 +98,12 @@ async def test_args_have_crash_safe_flags_for_dshow_webcam():
     assert "-an" in args and args[-1] == "out.mp4"
     # input options must come before -i
     assert args.index("-rtbufsize") < args.index("-i")
+    # GOP=1: every frame is a keyframe so every fragment is independently
+    # decodable – a hard kill mid-ride still leaves a playable file.
+    assert args[args.index("-g") + 1] == "1"
+    # -flush_packets 1: each packet write is immediately handed to the OS so a
+    # process kill cannot lose data sitting in FFmpeg's internal write buffer.
+    assert args[args.index("-flush_packets") + 1] == "1"
 
 
 async def test_args_for_stream_file_and_linux():
@@ -121,6 +127,23 @@ async def test_non_mp4_format_omits_movflags():
     f = CameraConfig(id="a", name="A", source=FileSource(path="x.mkv"))
     a = await build_args(f, RecordingConfig(format="mkv"), "o.mkv")
     assert "-movflags" not in a
+
+
+async def test_gop_size_is_one_for_all_source_types():
+    """GOP=1 (every frame is a keyframe) means every fragment is independently
+    decodable. A hard kill mid-ride leaves a valid fragmented MP4 up to the
+    last-written frame, satisfying the 'recording is sacred' crash-safety rule.
+    -flush_packets 1 ensures each packet write is immediately handed to the OS.
+    """
+    for src, plat in (
+        (WebcamSource(name="Cam"), "win32"),
+        (StreamSource(url="rtsp://h/s"), "linux"),
+        (FileSource(path="x.mp4"), "linux"),
+    ):
+        cam = CameraConfig(id="a", name="A", source=src)
+        args = await build_args(cam, RecordingConfig(), "o.mp4", platform=plat)
+        assert args[args.index("-g") + 1] == "1", f"Expected -g 1 for source {src}"
+        assert args[args.index("-flush_packets") + 1] == "1", f"Missing -flush_packets 1 for {src}"
 
 
 def test_mask_and_describe():

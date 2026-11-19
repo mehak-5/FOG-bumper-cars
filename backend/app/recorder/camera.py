@@ -30,7 +30,16 @@ from backend.app.recorder.devices import list_webcams
 log = logging.getLogger("camera")
 
 STOP_TIMEOUT_S = 5.0  # wait this long after `q` before force-killing
+# +frag_keyframe: flush a new moof atom at each keyframe boundary.
+# +empty_moov:    write an empty moov at t=0 so a partial file is streamable.
+# +default_base_moof: interoperable base_data_offset.
+# -g 1:           every frame is a keyframe, so every frame starts a new
+#                 independently decodable fragment.  A hard kill mid-ride
+#                 leaves a valid fragmented MP4 up to the last flush.
+# -flush_packets 1: force OS-level write() after each packet so a process
+#                 kill cannot lose data that is only in FFmpeg's write buffer.
 FRAGMENTED_MP4 = "+frag_keyframe+empty_moov+default_base_moof"
+GOP_SIZE = 1  # 1 = every frame is I-frame; crash-safe, slightly larger file
 
 SpawnFn = Callable[[list[str], CameraConfig], Awaitable[Any]]
 _CREDENTIALS = re.compile(r"//[^@/\s]+@")
@@ -112,8 +121,10 @@ async def build_args(
         "-pix_fmt",
         "yuv420p",
         "-g",
-        str(rec.fps * 2),
+        str(GOP_SIZE),
         *container,
+        "-flush_packets",
+        "1",
         "-progress",
         "pipe:1",
         "-nostats",

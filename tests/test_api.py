@@ -151,3 +151,13 @@ def test_cannot_delete_active_ride(client, ctx):
 
 def test_open_folder_unknown_session_404(client):
     assert client.post("/api/sessions/20260101_120000_000000/open-folder").status_code == 404
+
+
+def test_desktop_quit_endpoint_publishes_quit_and_calls_hook(client, quits):
+    assert client.post("/api/app/quit").json() == {"quitting": True}
+    assert quits == [True]
+
+
+def test_foreign_page_cannot_quit_the_app(client, quits):
+    r = client.post("/api/app/quit", headers={"origin": "https://evil.example.com"})
+    assert r.status_code == 403 and quits == []
