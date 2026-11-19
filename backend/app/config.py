@@ -10,6 +10,8 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, PositiveInt, field_validator
 
+from backend.app.core.atomic import atomic_write_text
+
 
 class WebcamSource(BaseModel):
     type: Literal["webcam"] = "webcam"
@@ -211,10 +213,4 @@ def save_config_text(path: str | Path, text: str) -> None:
         VenueFile.model_validate(yaml.safe_load(text) or {})
     except (ValueError, yaml.YAMLError) as err:
         raise ConfigError(f"Refusing to save invalid config: {err}") from err
-    tmp = path.with_name(path.name + ".tmp")
-    with open(tmp, "w", encoding="utf-8", newline="
-") as f:
-        f.write(text)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
+    atomic_write_text(path, text)
