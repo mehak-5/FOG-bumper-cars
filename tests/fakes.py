@@ -83,3 +83,20 @@ class Spawner:
             n += 3
             if proc.returncode is None:
                 proc.progress(n)
+
+
+class ReadyPreview:
+    """Preview stub: every camera always has a fresh frame."""
+
+    def __init__(self, camera_ids: list[str]) -> None:
+        self.camera_ids = camera_ids
+        self.recording: dict[str, bool] = {}
+
+    def get_readiness(self):
+        return {c: {"ready": True, "reason": "live", "last_frame_at": 0.0} for c in self.camera_ids}
+
+    def is_ready(self, camera_id: str) -> bool:
+        return True
+
+    def set_recording(self, camera_id: str, recording: bool) -> None:
+        self.recording[camera_id] = recording

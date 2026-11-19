@@ -8,7 +8,15 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, PositiveInt, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PositiveFloat,
+    PositiveInt,
+    field_validator,
+    model_validator,
+)
 
 from backend.app.core.atomic import atomic_write_text
 
@@ -78,6 +86,21 @@ class StorageConfig(BaseModel):
     disk_warn_gb: Annotated[float, Field(ge=0)] = 5
 
 
+class ServerConfig(BaseModel):
+    """Operator app (private) and public share app (tunnel target) ports. Always on 127.0.0.1."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    port: Annotated[int, Field(ge=1024, le=65535)] = 8000
+    public_port: Annotated[int, Field(ge=1024, le=65535)] = 8001
+
+    @model_validator(mode="after")
+    def _ports_differ(self) -> ServerConfig:
+        if self.public_port == self.port:
+            raise ValueError("server.public_port must differ from server.port")
+        return self
+
+
 class VenueInfo(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -117,6 +140,7 @@ class VenueFile(BaseModel):
     recording: RecordingConfig = Field(default_factory=RecordingConfig)
     trigger: TriggerConfig = Field(default_factory=TriggerConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
+    server: ServerConfig = Field(default_factory=ServerConfig)
     cameras: list[RawCamera] = Field(default_factory=list)
 
 
@@ -131,6 +155,7 @@ class AppConfig(BaseModel):
     venue: VenueInfo
     recording: RecordingConfig
     trigger: TriggerConfig
+    server: ServerConfig
     sessions_dir: Path
     cameras: list[CameraConfig]
     disk_warn_gb: float
@@ -197,6 +222,7 @@ def load_config(path: str | Path, app_root: str | Path, data_root: str | Path) -
         venue=doc.venue,
         recording=recording,
         trigger=doc.trigger,
+        server=doc.server,
         sessions_dir=sessions if sessions.is_absolute() else data_root / sessions,
         cameras=cameras,
         disk_warn_gb=doc.storage.disk_warn_gb,

@@ -64,6 +64,8 @@ cameras:
         "cameras:\n  - {id: 'bad id', name: A, source: 0}",
         "cameras:\n  - {id: a, name: A, source: 0}\n  - {id: b, name: B, source: 0}",
         "recording: {fps: 0}\ncameras:\n  - {id: a, name: A, source: 0}",
+        "server: {port: 8000, public_port: 8000}\ncameras:\n  - {id: a, name: A, source: 0}",
+        "server: {port: 80}\ncameras:\n  - {id: a, name: A, source: 0}",
         "recording: {fsp: 25}\ncameras:\n  - {id: a, name: A, source: 0}",
         'cameras:\n  - {id: a, name: A, source: ""}',
     ],
@@ -95,3 +97,9 @@ def test_save_is_atomic_and_validated(tmp_path):
         save_config_text(p, "recording: {fps: -1}")
     assert p.read_text() == good  # unchanged on rejection
     assert not (tmp_path / "venue.yaml.tmp").exists()
+
+
+def test_default_ports_are_distinct(tmp_path):
+    p = write(tmp_path, "cameras:\n  - {id: a, name: A, source: 0}")
+    cfg = load(p)
+    assert (cfg.server.port, cfg.server.public_port) == (8000, 8001)

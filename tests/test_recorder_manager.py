@@ -6,6 +6,7 @@ from backend.app.config import (
     CameraConfig,
     FileSource,
     RecordingConfig,
+    ServerConfig,
     TriggerConfig,
     VenueInfo,
 )
@@ -24,6 +25,7 @@ def make_cfg(tmp_path, **rec):
         venue=VenueInfo(name="Test"),
         recording=RecordingConfig(**{**base, **rec}),
         trigger=TriggerConfig(),
+        server=ServerConfig(),
         sessions_dir=tmp_path / "sessions",
         cameras=[
             CameraConfig(id="camera_1", name="Front", source=FileSource(path="a.mp4")),

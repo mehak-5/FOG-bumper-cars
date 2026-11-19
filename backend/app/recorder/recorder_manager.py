@@ -142,6 +142,10 @@ class RecorderManager:
             "notes": self.notes,
         }
 
+    def set_fatal(self, message: str | None) -> None:
+        """A startup problem (e.g. ffmpeg missing) that makes every ride start fail loudly."""
+        self._fatal = message
+
     def update_trigger_state(self, ts: dict[str, Any]) -> None:
         self.trigger_state = ts
         self._notify()
