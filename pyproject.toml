@@ -1,4 +1,4 @@
-j[project]
+[project]
 name = "bumper-car-backend"
 version = "0.1.0"
 description = "Bumper Car Highlight Reel System - Python backend"
