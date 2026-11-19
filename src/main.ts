@@ -1,67 +1,85 @@
+import path from 'node:path';
+import { spawn, ChildProcess } from 'node:child_process';
 import { app, BrowserWindow, dialog } from 'electron';
-import started from 'electron-squirrel-startup';
-import { startBackend, type Backend } from './backend';
-import { createMainWindow } from './desktop/windowManager';
 
 let win: BrowserWindow | null = null;
-let backend: Backend | undefined;
+let backendProc: ChildProcess | null = null;
 
-function run() {
-  const appRoot = app.getAppPath();
-  const dataRoot = app.isPackaged ? app.getPath('userData') : appRoot;
+const BACKEND_PORT = 8000;
+const HEALTH_URL = `http://127.0.0.1:${BACKEND_PORT}/api/health`;
 
-  app.whenReady().then(() => {
+async function pollHealth(timeoutMs = 15000): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
     try {
-      backend = startBackend({
-        appRoot,
-        dataRoot,
-        configPath: process.env.BUMPER_CONFIG,
-        send: (channel, payload) => win && !win.isDestroyed() && win.webContents.send(channel, payload),
-        quit: () => app.quit(),
-      });
-    } catch (err) {
-      dialog.showErrorBox('Bumper Car Moments - startup error', (err as Error).message);
-      app.exit(1);
-      return;
-    }
-    win = createMainWindow();
-    win.on('close', (event) => {
-      if (backend?.isRecording()) {
-        const choice = dialog.showMessageBoxSync(win!, {
-          type: 'warning',
-          buttons: ['Stop & Save Ride', 'Cancel'],
-          defaultId: 0,
-          cancelId: 1,
-          title: 'Ride in Progress',
-          message: 'A ride is currently recording. Do you want to stop and save the ride before closing?',
-        });
-        if (choice === 1) {
-          event.preventDefault();
-        }
-      }
-    });
-    win.on('closed', () => (win = null));
-  });
-
-  app.on('second-instance', () => {
-    if (!win) return;
-    if (win.isMinimized()) win.restore();
-    win.focus();
-  });
-
-  // Safe shutdown: stop any active ride and release the cameras before the app really exits.
-  let closing = false;
-  app.on('before-quit', (event) => {
-    if (!backend || closing) return;
-    event.preventDefault();
-    closing = true;
-    void backend.shutdown().finally(() => app.quit());
-  });
-  app.on('window-all-closed', () => app.quit());
-  process.on('exit', () => backend?.killAll()); // last resort: never leave ffmpeg processes behind
+      const res = await fetch(HEALTH_URL);
+      if (res.ok) return true;
+    } catch {}
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  return false;
 }
 
-// One instance only: two instances would compete for the same cameras.
-if (started) app.quit(); // Squirrel install/uninstall shortcut handling
-else if (app.requestSingleInstanceLock()) run();
-else app.quit();
+function startPythonBackend() {
+  const isWin = process.platform === 'win32';
+  const pythonBin = isWin
+    ? path.join(app.getAppPath(), '.venv', 'Scripts', 'python.exe')
+    : path.join(app.getAppPath(), '.venv', 'bin', 'python');
+
+  console.log(`Starting FastAPI backend using: ${pythonBin}`);
+  backendProc = spawn(
+    pythonBin,
+    ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', String(BACKEND_PORT)],
+    {
+      cwd: path.join(app.getAppPath(), 'backend'),
+      stdio: 'inherit',
+      env: { ...process.env, PYTHONPATH: path.join(app.getAppPath(), 'backend') },
+    }
+  );
+
+  backendProc.on('error', (err) => {
+    console.error('Failed to start FastAPI backend:', err);
+  });
+}
+
+function createWindow() {
+  win = new BrowserWindow({
+    width: 1280,
+    height: 760,
+    title: 'Bumper Car Moments — Operator',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  win.loadURL(`http://127.0.0.1:${BACKEND_PORT}`);
+  win.on('closed', () => (win = null));
+}
+
+app.whenReady().then(async () => {
+  startPythonBackend();
+
+  const isHealthy = await pollHealth();
+  if (!isHealthy) {
+    dialog.showErrorBox(
+      'Backend Startup Failure',
+      `FastAPI backend could not be reached at ${HEALTH_URL}. Check console logs.`
+    );
+    app.exit(1);
+    return;
+  }
+
+  createWindow();
+});
+
+app.on('before-quit', () => {
+  if (backendProc) {
+    console.log('Stopping Python backend...');
+    backendProc.kill();
+  }
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
