@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<section id="banner" class="banner" data-ride="{{ state.ride }}">{{ state.ride|capitalize }}</section>
+<p><span id="ride-timer"></span> <small id="last-session"></small></p>
+
+<div class="grid cameras">
+  {% for cam in state.cameras %}
+  <article data-camera-card="{{ cam.id }}" data-status="{{ cam.status }}">
+    <header><span class="ready-dot" data-ready="false"></span> {{ cam.name }}</header>
+    <img data-camera="{{ cam.id }}" alt="Live preview of {{ cam.name }}" width="320" height="180">
+    <footer><small class="cam-status">{{ cam.status }}</small></footer>
+  </article>
+  {% endfor %}
+</div>
+
+<div class="grid">
+  <button id="btn-start" disabled>Start ride (S)</button>
+  <button id="btn-end" class="secondary" disabled>End ride (E)</button>
+</div>
+<p><small id="start-hint"></small></p>
+
+<label>Ride notes
+  <textarea id="notes" rows="2" placeholder="Saved with this ride">{{ state.notes }}</textarea>
+</label>
+
+<p>Disk: <span id="disk">{% if state.disk_free_gb is not none %}{{ "%.1f"|format(state.disk_free_gb) }} GB free{% else %}checking…{% endif %}</span></p>
+
+<h4>Events</h4>
+<ul id="notices" class="notices"></ul>
+{% endblock %}
+{% block scripts %}<script type="module" src="/static/js/console.js"></script>{% endblock %}

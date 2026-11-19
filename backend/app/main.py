@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from backend.app.api.routes import build_router as build_api_router
@@ -23,8 +24,11 @@ from backend.app.core.logger import BusLogHandler, setup_file_logging
 from backend.app.recorder.camera import SpawnFn
 from backend.app.recorder.preview import PreviewManager
 from backend.app.recorder.recorder_manager import RecorderManager
+from backend.app.security import OriginGuardMiddleware
 from backend.app.services.startup import StartupService, check_disk
 from backend.app.triggers.keyboard_trigger import KeyboardTrigger
+from backend.app.ui.router import UI_DIR
+from backend.app.ui.router import build_router as build_ui_router
 from backend.app.ws.connection_manager import ConnectionManager
 from backend.app.ws.router import build_router as build_ws_router
 
@@ -166,9 +170,13 @@ def create_app(
     app = FastAPI(title="Bumper Car Operator", lifespan=lifespan)
     # Defence against DNS-rebinding: only answer requests addressed to a loopback host name.
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
+    # Defence against CSRF: a web page on another origin cannot trigger writes.
+    app.add_middleware(OriginGuardMiddleware, port=cfg.server.port)
     app.state.ctx = ctx
     app.include_router(build_api_router(ctx))
     app.include_router(build_ws_router(ctx))
+    app.include_router(build_ui_router(ctx))
+    app.mount("/static", StaticFiles(directory=UI_DIR / "static"), name="static")
     return app
 
 

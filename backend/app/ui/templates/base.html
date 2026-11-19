@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ page_title }}{% endblock %} · Bumper Car Moments</title>
+  <link rel="stylesheet" href="/static/vendor/pico.min.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script src="/static/vendor/htmx.min.js" defer></script>
+</head>
+<body>
+  <header class="container">
+    <nav>
+      <ul><li><strong>{{ venue }}</strong></li></ul>
+      <ul>
+        {% for key, label, href in nav %}
+        <li><a href="{{ href }}" {% if key == active %}aria-current="page"{% endif %}>{{ label }}</a></li>
+        {% endfor %}
+        <li><span id="conn" class="badge" data-status="connecting">Connecting…</span></li>
+      </ul>
+    </nav>
+  </header>
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

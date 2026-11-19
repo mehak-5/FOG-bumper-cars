@@ -1,0 +1,25 @@
+{% if message %}<p class="msg" data-kind="{{ message_kind }}" role="status">{{ message }}</p>{% endif %}
+{% if not sessions %}
+<p>No rides recorded yet.</p>
+{% else %}
+<table>
+  <thead><tr><th>Started</th><th>Duration</th><th>Status</th><th>Cameras</th><th>Notes</th><th></th></tr></thead>
+  <tbody>
+    {% for s in sessions %}
+    <tr>
+      <td>{{ s.start_time[:19]|replace("T", " ") }}</td>
+      <td>{% if s.duration_seconds is not none %}{{ "%.0f"|format(s.duration_seconds) }}s{% else %}-{% endif %}</td>
+      <td><span class="badge" data-status="{{ s.status }}">{{ s.status }}</span></td>
+      <td>{% for c in s.cameras %}<small>{{ c.id }}: {{ c.status }}</small><br>{% endfor %}</td>
+      <td>{{ s.notes }}</td>
+      <td class="actions">
+        <button class="outline" hx-post="/history/{{ s.session_id }}/open" hx-target="#history">Open folder</button>
+        <button class="outline" hx-post="/history/{{ s.session_id }}/reprocess" hx-target="#history">Reprocess</button>
+        <button class="outline secondary" hx-delete="/history/{{ s.session_id }}" hx-target="#history"
+                hx-confirm="Delete this ride and its videos? This cannot be undone.">Delete</button>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}

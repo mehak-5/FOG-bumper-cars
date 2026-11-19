@@ -9,6 +9,8 @@ dependencies = [
     "pydantic>=2",
     "pyyaml",
     "pynput",
+    "jinja2",
+    "python-multipart",
 ]
 
 [project.optional-dependencies]

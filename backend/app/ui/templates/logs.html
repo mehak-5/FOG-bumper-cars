@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Logs</h2>
+<div class="grid">
+  <label>Minimum level
+    <select id="log-level">
+      <option>debug</option><option selected>info</option><option>warning</option><option>error</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="log-pause"> Pause</label>
+</div>
+<div id="log-lines" class="log-lines" aria-live="off"></div>
+{% endblock %}
+{% block scripts %}<script type="module" src="/static/js/logs.js"></script>{% endblock %}

@@ -4,23 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
-from urllib.parse import urlsplit
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend.app.context import AppContext
+from backend.app.security import origin_ok
 from backend.app.ws.connection_manager import Connection
 from backend.app.ws.handlers import handle_message
 
 log = logging.getLogger("ws")
-LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
-
-
-def origin_allowed(origin: str | None) -> bool:
-    """Browsers always send Origin on WebSocket upgrades; only local pages may connect."""
-    if not origin:
-        return True  # non-browser clients (tests, curl) - the server only listens on 127.0.0.1
-    return urlsplit(origin).hostname in {h.strip("[]") for h in LOCAL_HOSTS}
 
 
 def build_router(ctx: AppContext) -> APIRouter:
@@ -28,7 +20,7 @@ def build_router(ctx: AppContext) -> APIRouter:
 
     @router.websocket("/ws")
     async def ws_endpoint(websocket: WebSocket) -> None:
-        if not origin_allowed(websocket.headers.get("origin")):
+        if not origin_ok(websocket.headers.get("origin"), ctx.cfg.server.port):
             await websocket.close(code=1008)  # policy violation
             return
         await websocket.accept()

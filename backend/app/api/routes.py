@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 from typing import Annotated, Any
 
@@ -17,17 +16,18 @@ from backend.app.core.atomic import atomic_write_json
 from backend.app.core.events import Events
 from backend.app.recorder.devices import list_webcams
 from backend.app.services import session_store
+from backend.app.services.desktop import open_in_file_manager
 from backend.app.services.session_store import InvalidSessionId
 
 
-def _read_doc(ctx: AppContext) -> dict[str, Any]:
+def read_config_doc(ctx: AppContext) -> dict[str, Any]:
     try:
         return yaml.safe_load(ctx.config_path.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError) as err:
         raise HTTPException(500, f"Cannot read config: {err}") from err
 
 
-def _save_doc(ctx: AppContext, doc: dict[str, Any]) -> dict[str, Any]:
+def save_config_doc(ctx: AppContext, doc: dict[str, Any]) -> dict[str, Any]:
     """Validate the whole document, then atomically replace venue.yaml."""
     try:
         VenueFile.model_validate(doc)
@@ -68,27 +68,27 @@ def build_router(ctx: AppContext) -> APIRouter:
     # ---------------- config ----------------
     @router.get("/config/cameras")
     async def get_cameras() -> list[dict[str, Any]]:
-        return _read_doc(ctx).get("cameras") or []
+        return read_config_doc(ctx).get("cameras") or []
 
     @router.put("/config/cameras")
     async def put_cameras(cameras: Annotated[list[dict[str, Any]], Body()]) -> dict[str, Any]:
-        doc = _read_doc(ctx)
+        doc = read_config_doc(ctx)
         doc["cameras"] = cameras
-        return _save_doc(ctx, doc)
+        return save_config_doc(ctx, doc)
 
     @router.get("/config/settings")
     async def get_settings() -> dict[str, Any]:
-        doc = _read_doc(ctx)
+        doc = read_config_doc(ctx)
         return {**(doc.get("recording") or {}), "trigger": doc.get("trigger") or {}}
 
     @router.put("/config/settings")
     async def put_settings(settings: Annotated[dict[str, Any], Body()]) -> dict[str, Any]:
-        doc = _read_doc(ctx)
+        doc = read_config_doc(ctx)
         trigger = settings.pop("trigger", None)
         doc["recording"] = settings
         if trigger is not None:
             doc["trigger"] = trigger
-        return _save_doc(ctx, doc)
+        return save_config_doc(ctx, doc)
 
     # ---------------- sessions ----------------
     @router.get("/sessions")
@@ -119,11 +119,7 @@ def build_router(ctx: AppContext) -> APIRouter:
         path = _session_path(ctx, session_id)
         if not path.is_dir():
             raise HTTPException(404, "Session not found")
-        if sys.platform == "win32":
-            os.startfile(path)  # noqa: S606 - local operator action on a validated path
-        else:
-            opener = "open" if sys.platform == "darwin" else "xdg-open"
-            await asyncio.create_subprocess_exec(opener, str(path))
+        await open_in_file_manager(path)
         return {"opened": True}
 
     @router.post("/sessions/{session_id}/reprocess")
