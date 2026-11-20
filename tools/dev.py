@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def main(argv: list[str]) -> int:
     env = dict(os.environ)
+    env["BUMPER_PYTHON"] = sys.executable
     if "--test-config" in argv:
         env["BUMPER_CONFIG"] = "config/venue.test.yaml"
     built = subprocess.run([sys.executable, str(ROOT / "tools" / "build_ts.py")], cwd=ROOT)

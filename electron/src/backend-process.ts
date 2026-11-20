@@ -2,6 +2,7 @@
 // unit-tested with plain Node.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
+import fs from "node:fs";
 import path from "node:path";
 
 export interface BackendCommand {
@@ -20,8 +21,20 @@ export function resolveBackendCommand(opts: {
     const dir = path.join(opts.resourcesPath, "backend");
     return { command: path.join(dir, "bumper-backend.exe"), args: [], cwd: dir };
   }
+  let command = opts.env.BUMPER_PYTHON;
+  if (!command) {
+    const winVenv = path.join(opts.repoRoot, ".venv", "Scripts", "python.exe");
+    const posixVenv = path.join(opts.repoRoot, ".venv", "bin", "python");
+    if (fs.existsSync(winVenv)) {
+      command = winVenv;
+    } else if (fs.existsSync(posixVenv)) {
+      command = posixVenv;
+    } else {
+      command = "python";
+    }
+  }
   return {
-    command: opts.env.BUMPER_PYTHON || "python",
+    command,
     args: ["-m", "backend.app.main"],
     cwd: opts.repoRoot,
   };
