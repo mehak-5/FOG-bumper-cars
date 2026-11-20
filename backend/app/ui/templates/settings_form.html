@@ -1,0 +1,29 @@
+<form id="settings-form" hx-post="/settings" hx-target="#settings-form" hx-swap="outerHTML">
+  {% if message %}<p class="msg" data-kind="{{ message_kind }}" role="status">{{ message }}</p>{% endif %}
+  <div class="grid">
+    <label>Width <input type="number" name="width" min="1" value="{{ s.width }}" required></label>
+    <label>Height <input type="number" name="height" min="1" value="{{ s.height }}" required></label>
+    <label>FPS <input type="number" name="fps" min="1" value="{{ s.fps }}" required></label>
+  </div>
+  <div class="grid">
+    <label>Container <input name="format" value="{{ s.format }}" required></label>
+    <label>Video codec <input name="video_codec" value="{{ s.video_codec }}" required></label>
+    <label>Encoder args <input name="encoder_args" value="{{ s.encoder_args }}"></label>
+  </div>
+  <div class="grid">
+    <label>Auto-stop after (s, blank = manual)
+      <input type="number" step="any" min="0" name="ride_duration_seconds" value="{{ s.ride_duration_seconds }}"></label>
+    <label>Hard safety limit (s)
+      <input type="number" step="any" min="0" name="max_duration_seconds" value="{{ s.max_duration_seconds }}"></label>
+  </div>
+  <div class="grid">
+    <label>Camera open timeout (s)
+      <input type="number" step="any" min="0.1" name="open_timeout_seconds" value="{{ s.open_timeout_seconds }}" required></label>
+    <label>Disconnect timeout (s)
+      <input type="number" step="any" min="0.1" name="disconnect_timeout_seconds" value="{{ s.disconnect_timeout_seconds }}" required></label>
+    <label>Trigger debounce (s)
+      <input type="number" step="any" min="0" name="debounce_seconds" value="{{ s.debounce_seconds }}" required></label>
+  </div>
+  <label>FFmpeg path <input name="ffmpeg_path" value="{{ s.ffmpeg_path }}" required></label>
+  <button type="submit">Save settings</button>
+</form>

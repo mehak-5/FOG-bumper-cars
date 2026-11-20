@@ -1,0 +1,38 @@
+[project]
+name = "bumper-car-backend"
+version = "0.1.0"
+description = "Bumper Car Highlight Reel System - Python backend"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic>=2",
+    "pyyaml",
+    "pynput",
+    "jinja2",
+    "python-multipart",
+    "qrcode>=8.0",
+    "pillow",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio", "httpx", "ruff", "pyinstaller"]
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["node_modules", "graphify-out"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501", "ASYNC110", "ASYNC240"]
