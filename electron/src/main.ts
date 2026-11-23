@@ -1,5 +1,6 @@
 // Thin desktop shell: single-instance lock, spawn the Python backend, wait for /api/health, open
 // a window on http://127.0.0.1:<port>/. Nothing else.
+import fs from "node:fs";
 import path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import {
@@ -60,13 +61,30 @@ async function confirmClose(w: BrowserWindow): Promise<void> {
   app.quit();
 }
 
+function patchEnvironment(repoRoot: string): void {
+  const home = process.env.USERPROFILE || process.env.HOME || "";
+  const sep = path.delimiter;
+  const currentPath = process.env.PATH || "";
+  const extras = [
+    path.join(repoRoot, ".venv", process.platform === "win32" ? "Scripts" : "bin"),
+    path.join(home, ".local", "bin"),
+    path.join(home, ".cargo", "bin"),
+  ];
+  const additions = extras.filter((p) => fs.existsSync(p) && !currentPath.includes(p));
+  if (additions.length > 0) {
+    process.env.PATH = [...additions, currentPath].join(sep);
+  }
+}
+
 async function boot(): Promise<void> {
+  patchEnvironment(REPO_ROOT);
   const cmd = resolveBackendCommand({
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
     repoRoot: REPO_ROOT,
     env: process.env,
   });
+  console.log(`[desktop] Spawning backend: ${cmd.command} ${cmd.args.join(" ")} (cwd: ${cmd.cwd})`);
   backend = new BackendProcess(cmd, PORT);
   backend.on("exit", (code: number | null, error: string | null) => {
     if (quitting) return;

@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import re
 
-_DSHOW_VIDEO = re.compile(r'"([^"]+)" \(video\)')
+import sys
+
+_DSHOW_VIDEO = re.compile(r'"([^"]+)" \((?:video|none)\)')
 
 
 def parse_dshow(text: str) -> list[str]:
@@ -14,8 +16,12 @@ def parse_dshow(text: str) -> list[str]:
 
 
 async def list_webcams(ffmpeg_path: str) -> list[str]:
+    kwargs: dict[str, Any] = {}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
     proc = await asyncio.create_subprocess_exec(
         ffmpeg_path,
+        "-nostdin",
         "-hide_banner",
         "-list_devices",
         "true",
@@ -23,8 +29,10 @@ async def list_webcams(ffmpeg_path: str) -> list[str]:
         "dshow",
         "-i",
         "dummy",
+        stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE,
+        **kwargs,
     )
     _, err = await proc.communicate()  # ffmpeg prints the device list on stderr
     return parse_dshow(err.decode("utf-8", errors="replace"))

@@ -8,6 +8,8 @@
 .banner[data-ride="starting"], .banner[data-ride="stopping"] { background: #b77d00; color: #fff; }
 
 .cameras img { width: 100%; aspect-ratio: 16 / 9; background: #000; object-fit: contain; }
+.camera-controls { display: flex; gap: 0.5rem; margin: 0.5rem 0; }
+.camera-controls button { flex: 1; padding: 0.3rem 0.5rem; font-size: 0.8rem; margin: 0; }
 .ready-dot { display: inline-block; width: .7rem; height: .7rem; border-radius: 50%; background: #a33; }
 .ready-dot[data-ready="true"] { background: #2fb457; }
 [data-camera-card][data-status="failed"], [data-camera-card][data-status="unavailable"] { outline: 2px solid #a33; }

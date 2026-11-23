@@ -87,6 +87,7 @@ class RecorderManager:
         fatal: str | None = None,
         preview: PreviewLike | None = None,
         camera_opts: dict[str, Any] | None = None,
+        on_frame: Callable[[str, bytes], None] | None = None,
     ) -> None:
         self.cfg = cfg
         self.bus = bus
@@ -94,6 +95,7 @@ class RecorderManager:
         self._fatal = fatal
         self._preview = preview
         self._camera_opts = camera_opts or {}
+        self._on_frame = on_frame
         self.session: Session | None = None
         self.ride = IDLE
         self.ride_ends_at: float | None = None
@@ -114,9 +116,8 @@ class RecorderManager:
         s = self.session
         if s:
             cameras = [asdict(c.state()) for c in s.cameras]
-        elif self._last_cameras is not None:
-            cameras = self._last_cameras
         else:
+            readiness = self._preview.get_readiness() if self._preview else {}
             cameras = [
                 {
                     "id": c.id,
@@ -124,7 +125,7 @@ class RecorderManager:
                     "status": "idle",
                     "frames": 0,
                     "file": None,
-                    "error": None,
+                    "error": None if readiness.get(c.id, {}).get("ready") else readiness.get(c.id, {}).get("reason"),
                 }
                 for c in self.cfg.cameras
             ]
@@ -220,7 +221,7 @@ class RecorderManager:
 
     async def _camera_lost(self, session: Session, cam: CameraRecorder) -> None:
         await self.bus.publish(Events.CAMERA_LOST, {"camera_id": cam.cam.id, "error": cam.error})
-        await self._notice("warning", f"Camera {cam.cam.name} lost: {cam.error}")
+        await self._notice("warning", f"Camera {cam.cam.name} disconnected")
         if all(c.status != "recording" for c in session.cameras):
             await self.end_ride({"reason": "all_cameras_lost", "session_id": session.id})
 
@@ -264,6 +265,7 @@ class RecorderManager:
                 sdir / f"{c.id}.{rec.format}",
                 spawn_fn=self._spawn_fn,
                 on_change=lambda: None,
+                on_frame=self._on_frame,
                 **self._camera_opts,
             )
             for c in self.cfg.cameras
@@ -317,6 +319,9 @@ class RecorderManager:
         self._notify()
         await asyncio.gather(*(c.stop() for c in s.cameras))  # all stop together
 
+        # Release cooldown: allow Windows DirectShow and USB drivers to cleanly release the camera handles
+        await asyncio.sleep(1.0)
+
         if self._preview:
             for c in self.cfg.cameras:
                 self._preview.set_recording(c.id, False)
@@ -334,4 +339,10 @@ class RecorderManager:
         self.ride_ends_at = None
         self._notify()
         log.info("Ride %s finished: %s (%s)", s.id, status, reason)
+        if status == "completed":
+            await self._notice("info", "Session ended")
+        elif status == "partial":
+            await self._notice("warning", "Session ended (some cameras had errors)")
+        else:
+            await self._notice("error", f"Session ended ({reason})")
         await self.bus.publish(Events.RIDE_FINISHED, {"session_id": s.id, "status": status})

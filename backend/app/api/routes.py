@@ -7,8 +7,8 @@ import sys
 from typing import Annotated, Any
 
 import yaml
-from fastapi import APIRouter, Body, HTTPException, Response
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Body, HTTPException, Request, Response
+from fastapi.responses import FileResponse, StreamingResponse
 
 from backend.app.config import ConfigError, VenueFile, save_config_text
 from backend.app.context import AppContext
@@ -71,6 +71,57 @@ def build_router(ctx: AppContext) -> APIRouter:
             return {"cameras": await list_webcams(ctx.cfg.recording.ffmpeg_path)}
         except OSError as err:
             raise HTTPException(500, f"Cannot list cameras: {err}") from err
+
+    # ---------------- camera preview (HTTP MJPEG) ----------------
+    @router.get("/cameras/{camera_id}/stream")
+    async def stream_camera(camera_id: str, request: Request) -> StreamingResponse:
+        """Live preview as multipart/x-mixed-replace (MJPEG).
+
+        The stream request itself opens the preview feed; when the browser
+        disconnects (img src cleared, tab closed) or a ride starts, the
+        generator ends and the feed is closed in `finally`.
+        """
+        if not any(c.id == camera_id for c in ctx.cfg.cameras):
+            raise HTTPException(404, f"Camera '{camera_id}' not found")
+        if ctx.recorder.ride != "idle":
+            raise HTTPException(409, "Cameras are currently busy recording a ride")
+
+        async def mjpeg_generator():
+            if not ctx.preview.open_feed(camera_id):
+                return  # could not open the camera; end the stream
+            last_sent_at = 0.0
+            try:
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    # Release the device as soon as a ride starts
+                    if ctx.recorder.ride != "idle":
+                        break
+
+                    pipe = ctx.preview._pipes.get(camera_id)
+                    if pipe and pipe.last_frame and pipe.last_frame_at != last_sent_at:
+                        last_sent_at = pipe.last_frame_at
+                        frame = pipe.last_frame
+                        yield (
+                            b"--frame\r\n"
+                            b"Content-Type: image/jpeg\r\n"
+                            b"Content-Length: " + str(len(frame)).encode() + b"\r\n\r\n"
+                            + frame
+                            + b"\r\n"
+                        )
+                    await asyncio.sleep(0.05)  # ~20 FPS max
+            finally:
+                ctx.preview.close_feed(camera_id)
+
+        return StreamingResponse(
+            mjpeg_generator(),
+            media_type="multipart/x-mixed-replace; boundary=frame",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
     # ---------------- config ----------------
     @router.get("/config/cameras")

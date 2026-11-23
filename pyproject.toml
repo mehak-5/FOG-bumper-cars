@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "bumper-car-backend"
 version = "0.1.0"
@@ -14,10 +18,18 @@ dependencies = [
     "python-multipart",
     "qrcode>=8.0",
     "pillow",
+    "opencv-python-headless",
+    "numpy",
+    "pandas",
+    "pyarrow",
+    "httpx",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-asyncio", "httpx", "ruff", "pyinstaller"]
+
+[project.scripts]
+bumper-backend = "backend.app.main:run"
 
 [tool.setuptools.packages.find]
 include = ["backend*"]

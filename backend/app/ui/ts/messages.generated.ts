@@ -15,6 +15,10 @@ export interface AppState {
   notes: string;
 }
 
+export interface CameraFeedRequest {
+  camera_id: string;
+}
+
 export interface CameraReadiness {
   ready: boolean;
   reason: string;
@@ -66,7 +70,7 @@ export interface Notice {
 
 export interface PreviewFrame {
   camera_id: string;
-  data_url: string;
+  data_url?: string | null;
 }
 
 export interface ProcessingProgress {
@@ -109,6 +113,8 @@ export interface ClientPayloads {
   "logs.subscribe": Empty;
   "logs.unsubscribe": Empty;
   "ping": Empty;
+  "preview.open": CameraFeedRequest;
+  "preview.close": CameraFeedRequest;
 }
 
 export interface ServerPayloads {

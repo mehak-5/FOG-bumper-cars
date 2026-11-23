@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import os
 import subprocess
@@ -42,14 +41,16 @@ ALLOWED_HOSTS = ["127.0.0.1", "localhost", "[::1]"]
 
 
 def resolve_app_root() -> Path:
-    if "BUMPER_APP_ROOT" in os.environ:
-        return Path(os.environ["BUMPER_APP_ROOT"]).resolve()
+    if root := os.environ.get("BUMPER_APP_ROOT"):
+        return Path(root).resolve()
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent.parent.parent
 
 
 APP_ROOT = resolve_app_root()
+if str(APP_ROOT) not in sys.path:
+    sys.path.insert(0, str(APP_ROOT))
 
 
 def probe_ffmpeg(ffmpeg_path: str) -> str | None:
@@ -85,42 +86,35 @@ def create_app(
     camera_opts: dict[str, Any] | None = None,
 ) -> FastAPI:
     data_root = data_root or app_root
-    config_path = Path(config_path or os.environ.get("BUMPER_CONFIG") or "config/venue.yaml")
-    if not config_path.is_absolute():
-        config_path = app_root / config_path
+    # relative path app_root se jud jata hai; absolute path jyon ka tyon rehta hai
+    config_path = app_root / (config_path or os.environ.get("BUMPER_CONFIG") or "config/venue.yaml")
     cfg = load_config(config_path, app_root, data_root)  # raises a readable ConfigError
 
     bus = EventBus()
     ws = ConnectionManager()
-    tasks: set[asyncio.Task[Any]] = set()
 
     def on_frame(camera_id: str, frame: bytes) -> None:
-        if ws.count:
-            import base64
-
-            data_url = "data:image/jpeg;base64," + base64.b64encode(frame).decode("ascii")
-            task = asyncio.get_running_loop().create_task(
-                ws.broadcast("preview.frame", {"camera_id": camera_id, "data_url": data_url})
-            )
-            tasks.add(task)
-            task.add_done_callback(tasks.discard)
+        # Frames are no longer pushed over the WebSocket (no base64).
+        # The browser pulls them over HTTP: GET /api/cameras/{id}/stream
+        pass
 
     preview = PreviewManager(
-        cfg.cameras, cfg.recording, spawn_fn=preview_spawn_fn, on_frame=on_frame
+        cfg.cameras, cfg.recording, spawn_fn=preview_spawn_fn, on_frame=on_frame, auto_open=False
     )
     recorder = RecorderManager(
-        cfg, bus, spawn_fn=spawn_fn, preview=preview, camera_opts=camera_opts
+        cfg,
+        bus,
+        spawn_fn=spawn_fn,
+        preview=preview,
+        camera_opts=camera_opts,
+        on_frame=None,
     )
     trigger = KeyboardTrigger(
         bus, cfg.trigger.debounce_seconds, on_trigger_state=recorder.update_trigger_state
     )
     processing = ProcessingService(cfg.sessions_dir, bus, spawn_fn=processing_spawn_fn)
     share = ShareService(cfg.sessions_dir, bus)
-    tunnel = TunnelManager(
-        bus,
-        public_port=cfg.server.public_port,
-        spawn_fn=tunnel_spawn_fn,
-    )
+    tunnel = TunnelManager(bus, public_port=cfg.server.public_port, spawn_fn=tunnel_spawn_fn)
     publisher = TunnelPublisher(tunnel.public_url)
     ctx = AppContext(
         cfg=cfg,
@@ -139,28 +133,34 @@ def create_app(
     )
 
     # ---- EventBus -> WebSocket bridge ----
-    bus.subscribe(Events.STATE_CHANGED, lambda s: ws.broadcast("state", s))
-    bus.subscribe(Events.APP_NOTICE, lambda n: ws.broadcast("notice", n))
+    for event, topic in [
+        (Events.STATE_CHANGED, "state"),
+        (Events.APP_NOTICE, "notice"),
+        (Events.PROCESSING_PROGRESS, "processing.progress"),
+        (Events.REEL_READY, "reel.ready"),
+        (Events.SHARE_CREATED, "share.created"),
+    ]:
+        bus.subscribe(event, lambda data, t=topic: ws.broadcast(t, data))
     bus.subscribe(Events.LOG_ENTRY, lambda e: ws.broadcast("log", e, logs_only=True))
-    bus.subscribe(
-        Events.PROCESSING_PROGRESS,
-        lambda p: ws.broadcast("processing.progress", p),
-    )
-    bus.subscribe(Events.REEL_READY, lambda r: ws.broadcast("reel.ready", r))
     bus.subscribe(Events.REEL_READY, lambda r: share.on_reel_ready(r["session_id"]))
-    bus.subscribe(Events.SHARE_CREATED, lambda s: ws.broadcast("share.created", s))
 
-    async def _on_tunnel_up(d: dict[str, Any]) -> None:
-        publisher.set_tunnel_url(d.get("url"))
-        await ws.broadcast("tunnel.status", {"up": True, "url": d.get("url")})
+    def tunnel_handler(up: bool) -> Callable[[dict[str, Any]], Any]:
+        async def handler(data: dict[str, Any]) -> None:
+            url = data.get("url") if up else None
+            publisher.set_tunnel_url(url)
+            await ws.broadcast("tunnel.status", {"up": up, "url": url})
 
-    async def _on_tunnel_down(_d: dict[str, Any]) -> None:
-        publisher.set_tunnel_url(None)
-        await ws.broadcast("tunnel.status", {"up": False, "url": None})
+        return handler
 
-    bus.subscribe(Events.TUNNEL_UP, _on_tunnel_up)
-    bus.subscribe(Events.TUNNEL_DOWN, _on_tunnel_down)
-    bus.subscribe(Events.APP_QUIT, lambda _d: _quit(ws, on_quit))
+    bus.subscribe(Events.TUNNEL_UP, tunnel_handler(True))
+    bus.subscribe(Events.TUNNEL_DOWN, tunnel_handler(False))
+
+    async def on_app_quit(_data: dict[str, Any]) -> None:
+        await ws.broadcast("app.quit", {})
+        if on_quit:
+            on_quit()
+
+    bus.subscribe(Events.APP_QUIT, on_app_quit)
 
     async def readiness_loop() -> None:
         last: dict[str, Any] | None = None
@@ -168,6 +168,20 @@ def create_app(
             await asyncio.sleep(0.5)
             current = preview.get_readiness()
             if current != last:
+                if last is not None:
+                    for c in cfg.cameras:
+                        was_ready = last.get(c.id, {}).get("ready", False)
+                        is_ready = current.get(c.id, {}).get("ready", False)
+                        if not was_ready and is_ready:
+                            await bus.publish(
+                                Events.APP_NOTICE,
+                                {"level": "info", "text": f"Camera {c.name} connected"},
+                            )
+                        elif was_ready and not is_ready:
+                            await bus.publish(
+                                Events.APP_NOTICE,
+                                {"level": "warning", "text": f"Camera {c.name} disconnected"},
+                            )
                 last = current
                 await ws.broadcast("camera.readiness", {"readiness": current})
 
@@ -181,6 +195,22 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         loop = asyncio.get_running_loop()
+        if sys.platform == "win32":
+            orig_handler = loop.get_exception_handler()
+
+            def proactor_exception_handler(
+                loop: asyncio.AbstractEventLoop, context: dict[str, Any]
+            ) -> None:
+                exc = context.get("exception")
+                if isinstance(exc, ConnectionResetError) and getattr(exc, "winerror", None) == 10054:
+                    return
+                if orig_handler:
+                    orig_handler(loop, context)
+                else:
+                    loop.default_exception_handler(context)
+
+            loop.set_exception_handler(proactor_exception_handler)
+
         file_handler = setup_file_logging(data_root / "logs") if file_logging else None
         ctx.log_handler = BusLogHandler(bus, loop)
         logging.getLogger().addHandler(ctx.log_handler)
@@ -216,9 +246,7 @@ def create_app(
             if start_processing:
                 await processing.stop()
             await recorder.shutdown()  # stop any active ride cleanly before exiting
-            for t in [*background, *tasks]:
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await t
+            await asyncio.gather(*background, return_exceptions=True)
             logging.getLogger().removeHandler(ctx.log_handler)
             if file_handler:
                 logging.getLogger().removeHandler(file_handler)
@@ -237,12 +265,6 @@ def create_app(
     return app
 
 
-async def _quit(ws: ConnectionManager, on_quit: Callable[[], None] | None) -> None:
-    await ws.broadcast("app.quit", {})
-    if on_quit:
-        on_quit()
-
-
 def run() -> None:
     """Entry point: serve the operator app on 127.0.0.1 only."""
     import multiprocessing
@@ -251,18 +273,16 @@ def run() -> None:
 
     import uvicorn
 
-    holder: dict[str, uvicorn.Server] = {}
-
-    def stop_server() -> None:
-        if "server" in holder:
-            holder["server"].should_exit = True
-
-    app = create_app(keyboard=True, file_logging=True, on_quit=stop_server)
-    cfg = app.state.ctx.cfg
-    holder["server"] = uvicorn.Server(
-        uvicorn.Config(app, host="127.0.0.1", port=cfg.server.port, log_level="info")
+    # lambda `server` ko call hone ke time dekhta hai, isliye neeche define hone par bhi chalega
+    app = create_app(
+        keyboard=True,
+        file_logging=True,
+        on_quit=lambda: setattr(server, "should_exit", True),
     )
-    holder["server"].run()
+    server = uvicorn.Server(
+        uvicorn.Config(app, host="127.0.0.1", port=app.state.ctx.cfg.server.port, log_level="info")
+    )
+    server.run()
 
 
 if __name__ == "__main__":

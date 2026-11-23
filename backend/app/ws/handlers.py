@@ -6,7 +6,12 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from backend.app.core.events import Events
-from backend.app.core.models import ProtocolError, SessionNotes, parse_client_message
+from backend.app.core.models import (
+    CameraFeedRequest,
+    ProtocolError,
+    SessionNotes,
+    parse_client_message,
+)
 from backend.app.ws.connection_manager import Connection
 
 if TYPE_CHECKING:
@@ -42,6 +47,13 @@ async def handle_message(ctx: AppContext, conn: Connection, raw: Any) -> None:
             await conn.send("log", entry)
     elif msg_type == "logs.unsubscribe":
         conn.wants_logs = False
+    elif msg_type == "preview.open":
+        assert isinstance(payload, CameraFeedRequest)
+        ctx.preview.open_feed(payload.camera_id)
+    elif msg_type == "preview.close":
+        assert isinstance(payload, CameraFeedRequest)
+        ctx.preview.close_feed(payload.camera_id)
+        await conn.send("preview.frame", {"camera_id": payload.camera_id, "data_url": None})
 
 
 def _button_state(key: str, reason: str) -> dict[str, Any]:

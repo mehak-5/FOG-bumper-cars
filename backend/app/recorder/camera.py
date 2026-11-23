@@ -26,6 +26,7 @@ from backend.app.config import (
     WebcamSource,
 )
 from backend.app.recorder.devices import list_webcams
+from backend.app.recorder.preview import extract_frames
 
 log = logging.getLogger("camera")
 
@@ -104,10 +105,14 @@ async def input_args(cam: CameraConfig, rec: RecordingConfig, platform: str) -> 
 
 
 async def build_args(
-    cam: CameraConfig, rec: RecordingConfig, out_path: str | Path, platform: str | None = None
+    cam: CameraConfig,
+    rec: RecordingConfig,
+    out_path: str | Path,
+    platform: str | None = None,
+    preview: bool = False,
 ) -> list[str]:
     container = ["-movflags", FRAGMENTED_MP4] if rec.format in ("mp4", "mov", "m4v") else []
-    return [
+    args = [
         "-hide_banner",
         "-loglevel",
         "error",
@@ -125,12 +130,32 @@ async def build_args(
         *container,
         "-flush_packets",
         "1",
-        "-progress",
-        "pipe:1",
-        "-nostats",
-        "-y",
-        str(out_path),
     ]
+    if preview:
+        args.extend([
+            "-progress",
+            "pipe:2",
+            "-nostats",
+            "-y",
+            str(out_path),
+            "-an",
+            "-vf",
+            "scale=320:180,fps=2",
+            "-f",
+            "image2pipe",
+            "-vcodec",
+            "mjpeg",
+            "-",
+        ])
+    else:
+        args.extend([
+            "-progress",
+            "pipe:1",
+            "-nostats",
+            "-y",
+            str(out_path),
+        ])
+    return args
 
 
 @dataclass
@@ -152,6 +177,7 @@ class CameraRecorder:
         *,
         spawn_fn: SpawnFn | None = None,
         on_change: Callable[[], None] | None = None,
+        on_frame: Callable[[str, bytes], None] | None = None,
         stop_timeout: float = STOP_TIMEOUT_S,
         poll_interval: float = 0.5,
     ) -> None:
@@ -164,6 +190,7 @@ class CameraRecorder:
         self.first_frame_at: float | None = None  # wall-clock time (time.time) of first frame
         self._spawn_fn = spawn_fn
         self._on_change = on_change or (lambda: None)
+        self._on_frame = on_frame
         self._stop_timeout = stop_timeout
         self._poll = poll_interval
         self._proc: Any = None
@@ -179,7 +206,7 @@ class CameraRecorder:
         """Start ffmpeg. True once frames flow, False if the camera failed. Never raises."""
         self._set_status("connecting")
         try:
-            args = await build_args(self.cam, self.rec, self.out_path)
+            args = await build_args(self.cam, self.rec, self.out_path, preview=self._on_frame is not None)
             if self._spawn_fn:
                 self._proc = await self._spawn_fn(args, self.cam)
             else:
@@ -242,26 +269,50 @@ class CameraRecorder:
         if not self._ready.done():
             self._ready.set_result(ok)
 
+    def _handle_frame_progress(self, frames: int) -> None:
+        self.frames = frames
+        self._last_progress = time.monotonic()
+        if self.status == "connecting" and self.frames > 0:
+            self.first_frame_at = time.time()
+            log.info("[%s] recording -> %s", self.cam.id, self.out_path.name)
+            self._set_status("recording")
+            self._finish_ready(True)
+        else:
+            self._on_change()
+
     async def _read_stdout(self) -> None:
         out = self._proc.stdout
-        while line := await out.readline():
-            m = _FRAME.match(line.decode("utf-8", errors="replace").strip())
-            if not m:
-                continue
-            self.frames = int(m.group(1))
-            self._last_progress = time.monotonic()
-            if self.status == "connecting" and self.frames > 0:
-                self.first_frame_at = time.time()
-                log.info("[%s] recording -> %s", self.cam.id, self.out_path.name)
-                self._set_status("recording")
-                self._finish_ready(True)
-            else:
-                self._on_change()
+        buf = bytearray()
+        line_buf = ""
+        while chunk := await out.read(65536):
+            # Check for progress lines (for compatibility with fake processes that send frame= to stdout)
+            text = chunk.decode("ascii", errors="ignore")
+            if "frame=" in text:
+                line_buf += text
+                while "\n" in line_buf:
+                    head, line_buf = line_buf.split("\n", 1)
+                    m = _FRAME.match(head.strip())
+                    if m:
+                        self._handle_frame_progress(int(m.group(1)))
+
+            # If dual preview output is enabled, extract and emit live MJPEG frames during recording
+            if self._on_frame:
+                buf += chunk
+                for frame in extract_frames(buf):
+                    self._on_frame(self.cam.id, frame)
 
     async def _read_stderr(self) -> None:
         err = self._proc.stderr
-        while chunk := await err.read(1024):
-            self._stderr = (self._stderr + mask(chunk.decode("utf-8", errors="replace")))[-1000:]
+        buf = ""
+        while chunk := await err.read(4096):
+            decoded = chunk.decode("utf-8", errors="replace")
+            self._stderr = (self._stderr + mask(decoded))[-1000:]
+            buf += decoded
+            while "\n" in buf:
+                head, buf = buf.split("\n", 1)
+                m = _FRAME.match(head.strip())
+                if m:
+                    self._handle_frame_progress(int(m.group(1)))
 
     async def _watchdog(self) -> None:
         opened_by = time.monotonic() + self.rec.open_timeout_seconds
@@ -275,7 +326,7 @@ class CameraRecorder:
                 )
                 self.kill()
             elif self.status == "recording" and now - self._last_progress > stall:
-                self._fail("failed", f"Camera disconnected (no frames for {stall}s)")
+                self._fail("failed", "Camera disconnected")
                 self.kill()
 
     async def _wait_exit(self) -> None:
@@ -293,7 +344,7 @@ class CameraRecorder:
             self._fail("unavailable", f"Could not open camera{detail}")
         elif self.status == "recording":
             if not self._stopping:
-                self._fail("failed", f"Camera stream ended unexpectedly (exit code {code}){detail}")
+                self._fail("failed", "Camera disconnected")
             elif self.frames > 0:
                 self._set_status("completed")
             else:

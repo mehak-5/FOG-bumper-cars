@@ -120,6 +120,7 @@ class _Pipe:
     last_frame: bytes | None = None
     last_frame_at: float | None = None
     recording: bool = False
+    active: bool = False
     backoff: float = 1.0
     buf: bytearray = field(default_factory=bytearray)
 
@@ -135,6 +136,7 @@ class PreviewManager:
         clock: Callable[[], float] = time.time,
         backoff_start: float = 1.0,
         backoff_max: float = 30.0,
+        auto_open: bool = True,
     ) -> None:
         self.cameras = cameras
         self.rec = rec
@@ -143,21 +145,44 @@ class PreviewManager:
         self._clock = clock
         self._backoff_start = backoff_start
         self._backoff_max = backoff_max
+        self._auto_open = auto_open
         self._pipes: dict[str, _Pipe] = {}
         self._stopped = False
 
     # ---------------- lifecycle ----------------
     def start(self) -> None:
-        """Open pipes for all cameras. Call once at app startup (inside the event loop)."""
+        """Initialize pipes for all cameras. Call once at app startup (inside the event loop)."""
         for cam in self.cameras:
-            pipe = _Pipe(cam, backoff=self._backoff_start)
+            pipe = _Pipe(cam, active=self._auto_open, backoff=self._backoff_start)
             self._pipes[cam.id] = pipe
-            self._launch(pipe)
+            if self._auto_open:
+                self._launch(pipe)
 
     def stop(self) -> None:
         self._stopped = True
         for pipe in self._pipes.values():
             self._close(pipe)
+
+    def open_feed(self, camera_id: str) -> bool:
+        """Open live preview pipe for a specific camera on demand."""
+        pipe = self._pipes.get(camera_id)
+        if pipe is None or pipe.recording:
+            return False
+        pipe.active = True
+        pipe.backoff = self._backoff_start
+        self._launch(pipe)
+        return True
+
+    def close_feed(self, camera_id: str) -> bool:
+        """Close live preview pipe for a specific camera on demand."""
+        pipe = self._pipes.get(camera_id)
+        if pipe is None:
+            return False
+        pipe.active = False
+        self._close(pipe)
+        pipe.last_frame = None
+        pipe.last_frame_at = None
+        return True
 
     # ---------------- queries ----------------
     def get_frame(self, camera_id: str) -> bytes | None:
@@ -174,11 +199,14 @@ class PreviewManager:
         return pipe.last_frame_at is not None and self._clock() - pipe.last_frame_at < FRAME_FRESH_S
 
     def is_ready(self, camera_id: str) -> bool:
-        """True if a fresh frame arrived within 2 s. While recording, always True."""
+        """True if a fresh frame arrived within 2 s, or if recording.
+        If pipe is inactive (feed closed), returns True because the device is idle and free to record."""
         pipe = self._pipes.get(camera_id)
         if pipe is None:
             return False
-        return pipe.recording or self._fresh(pipe)
+        if pipe.recording or not pipe.active:
+            return True
+        return self._fresh(pipe)
 
     def get_readiness(self) -> dict[str, dict[str, Any]]:
         result: dict[str, dict[str, Any]] = {}
@@ -186,6 +214,8 @@ class PreviewManager:
             at = None if pipe.last_frame_at is None else pipe.last_frame_at * 1000
             if pipe.recording:
                 ready, reason = True, "recording"
+            elif not pipe.active:
+                ready, reason = True, "closed"
             elif self._fresh(pipe):
                 ready, reason = True, "live"
             elif pipe.last_frame_at is not None:
@@ -205,7 +235,8 @@ class PreviewManager:
         if recording:
             log.info("[%s] recorder starting - closing preview pipe", camera_id)
             self._close(pipe)
-        elif not self._stopped:
+            pipe.active = False
+        elif not self._stopped and pipe.active:
             log.info("[%s] recorder released - reopening preview pipe", camera_id)
             pipe.backoff = self._backoff_start
             self._launch(pipe)

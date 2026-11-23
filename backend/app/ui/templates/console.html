@@ -8,14 +8,18 @@
   <article data-camera-card="{{ cam.id }}" data-status="{{ cam.status }}">
     <header><span class="ready-dot" data-ready="false"></span> {{ cam.name }}</header>
     <img data-camera="{{ cam.id }}" alt="Live preview of {{ cam.name }}" width="320" height="180">
+    <div class="camera-controls">
+      <button type="button" class="btn-open-feed" data-camera-id="{{ cam.id }}">Open</button>
+      <button type="button" class="btn-close-feed secondary" data-camera-id="{{ cam.id }}" disabled>Close</button>
+    </div>
     <footer><small class="cam-status">{{ cam.status }}</small></footer>
   </article>
   {% endfor %}
 </div>
 
 <div class="grid">
-  <button id="btn-start" disabled>Start ride (S)</button>
-  <button id="btn-end" class="secondary" disabled>End ride (E)</button>
+  <button id="btn-start" type="button" disabled>Start ride (S)</button>
+  <button id="btn-end" type="button" class="secondary" disabled>End ride (E)</button>
 </div>
 <p><small id="start-hint"></small></p>
 

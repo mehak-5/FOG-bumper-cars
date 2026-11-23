@@ -11,6 +11,24 @@ export interface BackendCommand {
   cwd: string;
 }
 
+export function findUvExecutable(): string | null {
+  try {
+    const res = spawnSync("uv", ["--version"], { windowsHide: true });
+    if (res.status === 0) return "uv";
+  } catch {
+    /* not in PATH directly */
+  }
+  const home = process.env.USERPROFILE || process.env.HOME || "";
+  const candidates = [
+    path.join(home, ".local", "bin", process.platform === "win32" ? "uv.exe" : "uv"),
+    path.join(home, ".cargo", "bin", process.platform === "win32" ? "uv.exe" : "uv"),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return null;
+}
+
 export function resolveBackendCommand(opts: {
   isPackaged: boolean;
   resourcesPath: string;
@@ -22,16 +40,34 @@ export function resolveBackendCommand(opts: {
     return { command: path.join(dir, "bumper-backend.exe"), args: [], cwd: dir };
   }
   let command = opts.env.BUMPER_PYTHON;
-  if (!command) {
-    const winVenv = path.join(opts.repoRoot, ".venv", "Scripts", "python.exe");
-    const posixVenv = path.join(opts.repoRoot, ".venv", "bin", "python");
-    if (fs.existsSync(winVenv)) {
-      command = winVenv;
-    } else if (fs.existsSync(posixVenv)) {
-      command = posixVenv;
-    } else {
-      command = "python";
-    }
+  if (command) {
+    const isUv = command === "uv" || path.basename(command).toLowerCase().startsWith("uv");
+    return {
+      command,
+      args: isUv ? ["run", "python", "-m", "backend.app.main"] : ["-m", "backend.app.main"],
+      cwd: opts.repoRoot,
+    };
+  }
+
+  // If repo has pyproject.toml and uv is installed, use uv run python
+  const hasPyproject = fs.existsSync(path.join(opts.repoRoot, "pyproject.toml"));
+  const uvBin = hasPyproject ? findUvExecutable() : null;
+  if (uvBin) {
+    return {
+      command: uvBin,
+      args: ["run", "python", "-m", "backend.app.main"],
+      cwd: opts.repoRoot,
+    };
+  }
+
+  const winVenv = path.join(opts.repoRoot, ".venv", "Scripts", "python.exe");
+  const posixVenv = path.join(opts.repoRoot, ".venv", "bin", "python");
+  if (fs.existsSync(winVenv)) {
+    command = winVenv;
+  } else if (fs.existsSync(posixVenv)) {
+    command = posixVenv;
+  } else {
+    command = "python";
   }
   return {
     command,
@@ -99,7 +135,7 @@ export class BackendProcess extends EventEmitter {
   start(extraEnv: NodeJS.ProcessEnv = {}): void {
     const child = spawn(this.cmd.command, this.cmd.args, {
       cwd: this.cmd.cwd,
-      env: { ...process.env, ...extraEnv },
+      env: { ...process.env, PYTHONUNBUFFERED: "1", ...extraEnv },
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     });

@@ -35,6 +35,7 @@ class KeyboardTrigger:
         self._active = False
         self._last_press: dict[str, float] = {}
         self._listener: Any = None
+        self._ignore_until: float = 0.0
         # Also fires on auto-stop (time limit) or a failed start.
         bus.subscribe(Events.RIDE_FINISHED, self._ride_finished)
 
@@ -102,8 +103,11 @@ class KeyboardTrigger:
         from pynput import keyboard  # imported lazily: not needed in tests or headless runs
 
         loop = loop or asyncio.get_running_loop()
+        self._ignore_until = self._clock() + 1.5
 
         def on_press(k: Any) -> None:
+            if self._clock() < self._ignore_until:
+                return
             char = getattr(k, "char", None)
             if char:
                 asyncio.run_coroutine_threadsafe(self.handle_key(char), loop)

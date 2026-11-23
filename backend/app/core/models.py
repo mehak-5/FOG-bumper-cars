@@ -76,10 +76,14 @@ class SessionNotes(Model):
     notes: str
 
 
+class CameraFeedRequest(Model):
+    camera_id: str
+
+
 # ---------------- WebSocket payloads: server -> client ----------------
 class PreviewFrame(Model):
     camera_id: str
-    data_url: str
+    data_url: str | None = None
 
 
 class CameraReadinessMsg(Model):
@@ -132,6 +136,8 @@ CLIENT_MESSAGES: dict[str, type[Model]] = {
     "logs.subscribe": Empty,
     "logs.unsubscribe": Empty,
     "ping": Empty,
+    "preview.open": CameraFeedRequest,
+    "preview.close": CameraFeedRequest,
 }
 
 SERVER_MESSAGES: dict[str, type[Model]] = {
