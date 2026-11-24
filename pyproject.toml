@@ -11,6 +11,7 @@ dependencies = [
     "pyyaml",
     "pynput",
     "jinja2",
+    "ultralytics",
     "python-multipart",
     "qrcode>=8.0",
     "pillow",

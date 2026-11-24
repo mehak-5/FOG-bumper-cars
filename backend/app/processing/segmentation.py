@@ -72,11 +72,16 @@ def extract_bin_features(
     num_bins = int(np.ceil(max_time / bin_size)) if max_time > 0 else 1
     bins: list[dict[str, Any]] = []
     prev_speed: float = 0.0
+    has_data = not df.empty and "ride_time_sec" in df.columns
 
     for b in range(num_bins):
         t_start = b * bin_size
         t_end = t_start + bin_size
-        slice_df = df[(df["ride_time_sec"] >= t_start) & (df["ride_time_sec"] < t_end)]
+        slice_df = (
+            df[(df["ride_time_sec"] >= t_start) & (df["ride_time_sec"] < t_end)]
+            if has_data
+            else pd.DataFrame()
+        )
 
         if slice_df.empty:
             bins.append(
